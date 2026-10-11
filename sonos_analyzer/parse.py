@@ -53,6 +53,25 @@ class SpeakerDiagnostics:
     is_stereo_left: bool = False
     is_stereo_right: bool = False
     is_stereo_coordinator: bool = False
+    # Room / bonded-set membership (from zone group topology)
+    room_name: str = ""
+    room_uid: str = ""
+    role: str = ""
+    bond: str = ""  # "stereo_pair", "home_theater" or ""
+    ht_sat_chan_map_set: str = ""
+    wifi_enabled: bool | None = None
+    # Radio / bridge detail (from /support/review)
+    radio_mode: str = ""
+    ht_channel_mhz: str = ""
+    rx_chains: int = 0
+    sonosnet_disabled: bool | None = None
+    stp_enabled: bool | None = None
+    stp_is_root: bool = False
+    stp_ports: list[tuple[str, str]] = field(default_factory=list)
+    # Other radios this speaker hears: (mac, signal from, signal to, stp state)
+    radio_peers: list[tuple[str, int, int, str]] = field(default_factory=list)
+    # PHY errors per second, sampled over a short window by the collector
+    phy_error_rate: float | None = None
 
 
 @dataclass
@@ -84,7 +103,10 @@ def parse_device_description(xml_text: str) -> dict[str, str]:
         return {}
 
     def text(tag: str) -> str:
-        el = device.find(f"d:{tag}", ns) or device.find(tag)
+        # Elements without children are falsy, so `or` cannot be used here.
+        el = device.find(f"d:{tag}", ns)
+        if el is None:
+            el = device.find(tag)
         return (el.text or "").strip() if el is not None else ""
 
     return {
@@ -109,34 +131,86 @@ def parse_zone_group_state(xml_text: str) -> dict[str, SpeakerDiagnostics]:
         group_id = group.attrib.get("ID", "")
 
         for member in group.findall("ZoneGroupMember"):
-            location = member.attrib.get("Location", "")
-            ip = _ip_from_location(location)
-            if not ip:
-                continue
+            # Home theater surrounds and subs are nested under their primary.
+            for element in [member, *member.findall("Satellite")]:
+                speaker = _parse_zone_member(element, coordinator, group_id)
+                if speaker:
+                    speakers[speaker.ip_address] = speaker
 
-            channel_map = member.attrib.get("ChannelMapSet", "")
-            speaker = SpeakerDiagnostics(
-                zone_name=member.attrib.get("ZoneName", ip),
-                ip_address=ip,
-                local_uid=member.attrib.get("UUID", ""),
-                software_version=member.attrib.get("SoftwareVersion", ""),
-                connection_type_code=member.attrib.get("ConnectionType", ""),
-                wifi_channel_mhz=member.attrib.get("ChannelFreq", ""),
-                behind_wifi_extender=member.attrib.get("BehindWifiExtender", "0") == "1",
-                room_calibration_state=member.attrib.get("RoomCalibrationState", ""),
-                boot_seq=member.attrib.get("BootSeq", ""),
-                airplay_enabled=member.attrib.get("AirPlayEnabled", "0") == "1",
-                is_invisible=member.attrib.get("Invisible", "0") == "1",
-                channel_map_set=channel_map,
-                coordinator_uid=coordinator,
-                group_id=group_id,
-                ethernet_link=member.attrib.get("EthLink", "0") == "1",
-            )
-            speaker.connection_type = _connection_type_label(speaker.connection_type_code)
-            _apply_channel_map_roles(speaker, channel_map, coordinator, member.attrib.get("UUID", ""))
-            speakers[ip] = speaker
+    names_by_uid = {sp.local_uid: sp.zone_name for sp in speakers.values()}
+    for speaker in speakers.values():
+        speaker.room_name = names_by_uid.get(speaker.room_uid, speaker.zone_name)
 
     return speakers
+
+
+def _parse_zone_member(member: ET.Element, coordinator: str, group_id: str) -> SpeakerDiagnostics | None:
+    attrib = member.attrib
+    ip = _ip_from_location(attrib.get("Location", ""))
+    if not ip:
+        return None
+
+    uuid = attrib.get("UUID", "")
+    channel_map = attrib.get("ChannelMapSet", "")
+    ht_map = attrib.get("HTSatChanMapSet", "")
+    speaker = SpeakerDiagnostics(
+        zone_name=attrib.get("ZoneName", ip),
+        ip_address=ip,
+        local_uid=uuid,
+        software_version=attrib.get("SoftwareVersion", ""),
+        connection_type_code=attrib.get("ConnectionType", ""),
+        wifi_channel_mhz=attrib.get("ChannelFreq", ""),
+        behind_wifi_extender=attrib.get("BehindWifiExtender", "0") == "1",
+        room_calibration_state=attrib.get("RoomCalibrationState", ""),
+        boot_seq=attrib.get("BootSeq", ""),
+        airplay_enabled=attrib.get("AirPlayEnabled", "0") == "1",
+        is_invisible=attrib.get("Invisible", "0") == "1",
+        channel_map_set=channel_map,
+        ht_sat_chan_map_set=ht_map,
+        coordinator_uid=coordinator,
+        group_id=group_id,
+        ethernet_link=attrib.get("EthLink", "0") == "1",
+    )
+    if "WifiEnabled" in attrib:
+        speaker.wifi_enabled = attrib["WifiEnabled"] == "1"
+    speaker.connection_type = _connection_type_label(speaker.connection_type_code)
+    _apply_channel_map_roles(speaker, channel_map, coordinator, uuid)
+
+    # The first entry of either map is the room's primary speaker.
+    bond_map = ht_map or channel_map
+    channels = _parse_channel_map(bond_map)
+    speaker.room_uid = next(iter(channels), uuid)
+    if uuid in channels:
+        speaker.bond = "home_theater" if ht_map else "stereo_pair"
+        speaker.role = _role_label(channels[uuid])
+    return speaker
+
+
+def _parse_channel_map(channel_map: str) -> dict[str, str]:
+    """'UID:LF,LF;UID:RF,RF' -> {uid: channels}, in order."""
+    channels: dict[str, str] = {}
+    for part in channel_map.split(";"):
+        if ":" in part:
+            uid, chans = part.split(":", 1)
+            channels[uid] = chans.upper()
+    return channels
+
+
+def _role_label(channels: str) -> str:
+    first = channels.split(",")[0]
+    if channels in {"LF,LF", "LF"}:
+        return "Left"
+    if channels in {"RF,RF", "RF"}:
+        return "Right"
+    if channels == "LF,RF":
+        return "Front"
+    if first == "SW":
+        return "Sub"
+    if first == "LR":
+        return "Left surround"
+    if first == "RR":
+        return "Right surround"
+    return channels
 
 
 def merge_speakers(*maps: dict[str, SpeakerDiagnostics]) -> dict[str, SpeakerDiagnostics]:
@@ -181,15 +255,23 @@ def _parse_support_block(block: ET.Element) -> SpeakerDiagnostics | None:
         conn = _child_text(wireless, "ConnectionTypeString")
         if conn:
             speaker.connection_type = conn
+        speaker.connection_type_code = _child_text(wireless, "ConnectionType")
+        sonosnet_disabled = _child_text(wireless, "SonosNetDisabled")
+        if sonosnet_disabled:
+            speaker.sonosnet_disabled = sonosnet_disabled == "1"
 
-    enet = block.find("EnetPorts/Port")
-    if enet is not None:
-        speaker.ethernet_link = _child_text(enet, "Link") == "1"
-        speaker.ethernet_speed = _child_text(enet, "Speed")
+    # Multi-port models list every port; report the one with a link.
+    for enet in block.findall("EnetPorts/Port"):
+        if _child_text(enet, "Link") == "1":
+            speaker.ethernet_link = True
+            speaker.ethernet_speed = _child_text(enet, "Speed")
+            break
 
     for cmd in block.findall("Command"):
         if cmd.attrib.get("cmdline") == "/sbin/ifconfig" and cmd.text:
             _parse_ifconfig(cmd.text, speaker)
+        elif "brctl showstp" in cmd.attrib.get("cmdline", "") and cmd.text:
+            _parse_showstp(cmd.text, speaker)
 
     for file_el in block.findall("File"):
         if file_el.attrib.get("name") == "/proc/ath_rincon/status" and file_el.text:
@@ -228,7 +310,40 @@ def _parse_ifconfig(text: str, speaker: SpeakerDiagnostics) -> None:
                 current.tx_dropped = int(m.group(3))
 
 
+def _parse_showstp(text: str, speaker: SpeakerDiagnostics) -> None:
+    if "STP is disabled" in text:
+        speaker.stp_enabled = False
+        return
+
+    bridge_id = re.search(r"bridge id\s+(\S+)", text)
+    if not bridge_id:
+        return
+    speaker.stp_enabled = True
+    root = re.search(r"designated root\s+(\S+)", text)
+    speaker.stp_is_root = bool(root) and root.group(1) == bridge_id.group(1)
+
+    port = None
+    for line in text.splitlines():
+        header = re.match(r"^(\S+) \(\d+\)", line)
+        if header:
+            port = header.group(1)
+            continue
+        state = re.search(r"\bstate\s+(\w+)", line)
+        if port and state:
+            speaker.stp_ports.append((port, state.group(1)))
+            port = None
+
+
 def _parse_ath_status(text: str, speaker: SpeakerDiagnostics) -> None:
+    mode_match = re.search(r"Mode: \w+ \((\w+)\)", text)
+    if mode_match:
+        speaker.radio_mode = mode_match.group(1)
+    ht_match = re.search(r"HT Channel is (\d+)", text)
+    if ht_match and ht_match.group(1) != "0":
+        speaker.ht_channel_mhz = ht_match.group(1)
+    chains_match = re.search(r"RF Chains: RX:(\d+)", text)
+    if chains_match:
+        speaker.rx_chains = int(chains_match.group(1))
     channel_match = re.search(r"Operating on channel (\d+)", text)
     if channel_match:
         speaker.wifi_channel_mhz = channel_match.group(1)
@@ -243,6 +358,16 @@ def _parse_ath_status(text: str, speaker: SpeakerDiagnostics) -> None:
     hal_match = re.search(r"HAL Reset Failures: cnt:\s*(\d+)", text)
     if hal_match:
         speaker.hal_reset_failures = int(hal_match.group(1))
+
+    # Node xx:xx:xx:xx:xx:xx - FROM 63 {61} : TO 63 {61} : STP 03
+    for match in re.finditer(
+        r"^\s*Node ([0-9A-Fa-f:]{17}) - FROM (\d+)(?: \d+)? : TO (\d+)(?: \d+)? : STP (\w+)",
+        text,
+        re.MULTILINE,
+    ):
+        speaker.radio_peers.append(
+            (match.group(1).upper(), int(match.group(2)), int(match.group(3)), match.group(4))
+        )
 
     for match in re.finditer(r"Noise Floor:\s*(-?\d+)\s*dBm", text):
         speaker.noise_floor_dbm.append(int(match.group(1)))
@@ -272,9 +397,10 @@ def _apply_channel_map_roles(
 
 def _connection_type_label(code: str) -> str:
     return {
+        "3": "Ethernet",
         "4": "Ethernet (WiFi disabled)",
         "5": "WiFi",
-        "3": "SonosNet",
+        "8": "Home theater link",
     }.get(code, code or "Unknown")
 
 

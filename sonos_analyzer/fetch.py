@@ -7,9 +7,12 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
+from sonos_analyzer import __version__
+
 
 DEFAULT_PORT = 1400
 TIMEOUT = 8
+USER_AGENT = f"sonos-analyzer/{__version__}"
 
 
 @dataclass
@@ -19,7 +22,7 @@ class FetchError:
 
 
 def _get(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "sonos-analyzer/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
         return resp.read().decode("utf-8", errors="replace")
 
@@ -38,7 +41,7 @@ def _soap(ip: str, service_path: str, action: str, body: str) -> str:
         headers={
             "Content-Type": 'text/xml; charset="utf-8"',
             "SOAPACTION": action,
-            "User-Agent": "sonos-analyzer/0.1",
+            "User-Agent": USER_AGENT,
         },
         method="POST",
     )
@@ -52,6 +55,11 @@ def fetch_review(ip: str) -> str:
 
 def fetch_device_description(ip: str) -> str:
     return _get(f"http://{ip}:{DEFAULT_PORT}/xml/device_description.xml")
+
+
+def fetch_ath_status(ip: str) -> str:
+    """Radio status. Reading it resets the speaker's PHY error counter."""
+    return _get(f"http://{ip}:{DEFAULT_PORT}/status/proc/ath_rincon/status")
 
 
 def fetch_zone_group_state(ip: str) -> str:

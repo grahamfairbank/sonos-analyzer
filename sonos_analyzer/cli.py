@@ -3,19 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
 from sonos_analyzer.analyze import analyze
+from sonos_analyzer.collect import collect_snapshot
 from sonos_analyzer.discovery import discover_speakers
-from sonos_analyzer.fetch import fetch_zone_group_state, probe_speaker
-from sonos_analyzer.parse import (
-    HouseholdSnapshot,
-    merge_speakers,
-    parse_device_description,
-    parse_review_xml,
-    parse_zone_group_state,
-)
 from sonos_analyzer.report import print_terminal, write_html, write_json
 
 
@@ -40,6 +34,18 @@ def main(argv: list[str] | None = None) -> int:
         help="SSDP discovery timeout in seconds (default: 3)",
     )
     parser.add_argument(
+        "--interface",
+        default=os.environ.get("SONOS_ANALYZER_INTERFACE") or None,
+        help="Limit discovery to one interface, by name or IPv4 address (default: $SONOS_ANALYZER_INTERFACE, else all interfaces)",
+    )
+    parser.add_argument(
+        "--phy-sample",
+        type=float,
+        default=5.0,
+        metavar="SECONDS",
+        help="Window for measuring Wi-Fi PHY error rates; 0 to skip (default: 5)",
+    )
+    parser.add_argument(
         "--json",
         metavar="PATH",
         help="Write JSON report to PATH",
@@ -60,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ips:
         ips = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
     else:
-        discovered = discover_speakers(timeout=args.discover_timeout)
+        discovered = discover_speakers(timeout=args.discover_timeout, interface=args.interface)
         ips = [d.ip for d in discovered]
         if not ips:
             print(
@@ -70,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    snapshot = _collect_snapshot(ips)
+    snapshot = collect_snapshot(ips, phy_sample_seconds=args.phy_sample)
     if not snapshot.speakers:
         print("Could not read diagnostics from any speaker.", file=sys.stderr)
         for err in snapshot.fetch_errors:
@@ -93,42 +99,6 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Wrote HTML report to {args.html}")
 
     return 0
-
-
-def _collect_snapshot(ips: list[str]) -> HouseholdSnapshot:
-    snapshot = HouseholdSnapshot(source_ips=ips)
-    review_maps = []
-    group_maps = []
-    descriptions: dict[str, dict[str, str]] = {}
-
-    for ip in ips:
-        review_xml, desc_xml, err = probe_speaker(ip)
-        if err:
-            snapshot.fetch_errors.append(f"{ip}: {err.message}")
-            continue
-
-        if review_xml:
-            review_maps.append(parse_review_xml(review_xml))
-        if desc_xml:
-            descriptions[ip] = parse_device_description(desc_xml)
-
-        try:
-            group_xml = fetch_zone_group_state(ip)
-            group_maps.append(parse_zone_group_state(group_xml))
-        except Exception as exc:  # noqa: BLE001 - surface as non-fatal
-            snapshot.fetch_errors.append(f"{ip} zone group: {exc}")
-
-    snapshot.speakers = merge_speakers(*review_maps, *group_maps)
-
-    for ip, meta in descriptions.items():
-        if ip not in snapshot.speakers:
-            continue
-        speaker = snapshot.speakers[ip]
-        speaker.model_name = meta.get("model_name", speaker.model_name)
-        speaker.model_number = meta.get("model_number", speaker.model_number)
-        speaker.display_version = meta.get("display_version", speaker.display_version)
-
-    return snapshot
 
 
 if __name__ == "__main__":

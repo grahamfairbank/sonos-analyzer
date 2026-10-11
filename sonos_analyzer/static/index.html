@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sonos Analyzer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f6f5f2;
+      --surface: #ffffff;
+      --border: #e2dfd8;
+      --text: #1b1a17;
+      --muted: #6b675e;
+      --accent: #1b1a17;
+      --accent-text: #ffffff;
+      --high: #c0392b;
+      --medium: #c77700;
+      --low: #2473b5;
+      --ok: #1e8a4c;
+      --info: #6b675e;
+      --radius: 10px;
+      --sig-poor: #cde2fb; --sig-weak: #86b6ef; --sig-fair: #3987e5; --sig-strong: #184f95;
+      --sig-poor-ink: #1b1a17; --sig-weak-ink: #1b1a17; --sig-fair-ink: #ffffff; --sig-strong-ink: #ffffff;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #131312;
+        --surface: #1d1d1b;
+        --border: #33322e;
+        --text: #eeece6;
+        --muted: #9c988d;
+        --accent: #eeece6;
+        --accent-text: #131312;
+        --high: #ef6b5c;
+        --medium: #e8a33d;
+        --low: #62a8e5;
+        --ok: #4fbf7f;
+        --info: #9c988d;
+        --sig-poor: #0d366b; --sig-weak: #1c5cab; --sig-fair: #5598e7; --sig-strong: #b7d3f6;
+        --sig-poor-ink: #ffffff; --sig-weak-ink: #ffffff; --sig-fair-ink: #131312; --sig-strong-ink: #131312;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+    main { max-width: 1240px; margin: 0 auto; padding: 32px 16px 64px; }
+    header { margin-bottom: 24px; }
+    h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.02em; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 32px 0 12px; }
+    h3 { font-size: 15px; margin: 0 0 4px; }
+    p { margin: 0; }
+    .muted { color: var(--muted); }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+
+    form { padding: 16px; display: grid; gap: 12px; grid-template-columns: 1fr 130px auto; align-items: end; }
+    label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+    input {
+      width: 100%; padding: 9px 11px; font: inherit; color: inherit;
+      background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+    }
+    input:focus-visible, button:focus-visible, a:focus-visible { outline: 2px solid var(--low); outline-offset: 2px; }
+    button, .button {
+      font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; white-space: nowrap;
+      padding: 9px 18px; border-radius: 7px; border: 1px solid var(--accent);
+      background: var(--accent); color: var(--accent-text);
+    }
+    button:disabled { opacity: 0.55; cursor: progress; }
+    .button.secondary { background: transparent; color: var(--text); border-color: var(--border); font-weight: 500; padding: 6px 12px; font-size: 13px; }
+
+    .notice { padding: 12px 16px; margin-top: 16px; border-left: 4px solid var(--high); }
+    .notice ul { margin: 6px 0 0; padding-left: 20px; }
+    .empty { padding: 40px 16px; text-align: center; margin-top: 16px; }
+
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: 24px; }
+    .toolbar .actions { display: flex; gap: 8px; }
+
+    .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 12px; }
+    .tile { padding: 14px 16px; }
+    .tile .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.2; }
+    .tile .label { font-size: 12px; color: var(--muted); }
+
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { font-size: 12px; font-weight: 600; color: var(--muted); }
+    tbody tr:last-child td { border-bottom: 0; }
+    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td .sub { display: block; font-size: 12px; color: var(--muted); }
+    code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.05em;
+      padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor;
+    }
+    .high { color: var(--high); } .medium { color: var(--medium); } .low { color: var(--low); } .info { color: var(--info); } .ok { color: var(--ok); }
+
+    .finding { padding: 14px 16px; margin-bottom: 10px; border-left: 4px solid currentColor; }
+    .finding > * { color: var(--text); }
+    .finding .head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .chip {
+      font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+    }
+    .chip .note { color: var(--muted); margin-left: 6px; }
+    tr.member td:first-child { padding-left: 30px; }
+    tr.member td { border-top: 0; }
+    tr.has-members td { border-bottom-color: transparent; }
+    td.wrap { white-space: normal; }
+    td.wrap .chips { margin-top: 0; }
+    ol.recs { margin: 0; padding: 14px 16px 14px 36px; }
+    ol.recs li + li { margin-top: 6px; }
+
+    .signal { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+    .signal > div { padding: 16px; min-width: 0; }
+    .signal > div + div { border-left: 1px solid var(--border); }
+    .signal svg { display: block; width: 100%; height: auto; }
+    .signal svg text { font-size: 13px; fill: var(--text); }
+    .signal .node { cursor: pointer; }
+    .signal .node circle { fill: var(--surface); stroke: var(--text); stroke-width: 2; }
+    .signal .node.active circle { fill: var(--text); }
+    .signal .node.dim { opacity: 0.35; }
+    .signal .link { fill: none; stroke-linecap: round; opacity: 0.7; }
+    .signal .link.dim { opacity: 0.06; }
+    .signal .link.lit { opacity: 1; }
+    .poor-stroke { stroke: var(--sig-poor); } .weak-stroke { stroke: var(--sig-weak); }
+    .fair-stroke { stroke: var(--sig-fair); } .strong-stroke { stroke: var(--sig-strong); }
+    .sig-poor { background: var(--sig-poor); color: var(--sig-poor-ink); }
+    .sig-weak { background: var(--sig-weak); color: var(--sig-weak-ink); }
+    .sig-fair { background: var(--sig-fair); color: var(--sig-fair-ink); }
+    .sig-strong { background: var(--sig-strong); color: var(--sig-strong-ink); }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); padding: 12px 16px; border-top: 1px solid var(--border); }
+    .legend .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+    .peer { display: grid; grid-template-columns: minmax(0, 1fr) 90px 30px 46px; gap: 8px; align-items: center; font-size: 13px; padding: 4px 0; }
+    .peer .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .peer .track { height: 8px; }
+    .peer .bar { height: 8px; border-radius: 0 4px 4px 0; }
+    .peer .value { text-align: right; font-variant-numeric: tabular-nums; }
+    .peer .band { color: var(--muted); font-size: 12px; }
+    table.matrix th, table.matrix td { padding: 6px 8px; font-size: 12px; }
+    table.matrix td { text-align: center; font-variant-numeric: tabular-nums; border: 2px solid var(--surface); min-width: 44px; }
+    table.matrix thead th { vertical-align: bottom; white-space: normal; max-width: 72px; font-weight: 500; }
+    table.matrix tbody th { font-weight: 500; color: var(--text); }
+    table.matrix td.self { background: var(--bg); }
+    table.matrix td.none { color: var(--muted); }
+    @media (max-width: 760px) {
+      .signal { grid-template-columns: 1fr; }
+      .signal > div + div { border-left: 0; border-top: 1px solid var(--border); }
+    }
+
+    [hidden] { display: none !important; }
+    @media (max-width: 640px) { form { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Sonos Analyzer</h1>
+    <p class="muted">Firmware, Wi-Fi, wiring and bonded-room health for the Sonos speakers on this network. Read-only; nothing on your speakers is changed.</p>
+  </header>
+
+  <form id="scan-form" class="card">
+    <div>
+      <label for="ips">Speaker IPs (optional)</label>
+      <input id="ips" name="ips" placeholder="Leave empty to auto-discover, or 192.168.1.165, 192.168.1.89" autocomplete="off" spellcheck="false">
+    </div>
+    <div>
+      <label for="timeout">Discovery timeout (s)</label>
+      <input id="timeout" name="timeout" type="number" min="1" max="15" step="1" value="3">
+    </div>
+    <button id="scan-button" type="submit">Scan network</button>
+  </form>
+
+  <div id="error" class="card notice" role="alert" hidden></div>
+  <div id="empty" class="card empty muted">No scan yet. Press <strong>Scan network</strong> to analyze your speakers.</div>
+
+  <section id="results" hidden>
+    <div class="toolbar">
+      <span id="generated" class="muted"></span>
+      <span class="actions">
+        <a id="download-json" class="button secondary" download="sonos-report.json">Download JSON</a>
+        <a class="button secondary" href="/report.html">Download HTML</a>
+      </span>
+    </div>
+    <div id="tiles" class="tiles"></div>
+    <div id="fetch-errors" class="card notice" hidden></div>
+
+    <h2>Speakers</h2>
+    <div class="card table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Room</th><th>Model</th><th>IP</th><th>Connection</th><th>Firmware</th><th>Trueplay</th>
+            <th class="num" title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors/s</th>
+            <th class="num" title="Worst noise floor across the radio's receive chains">Noise floor</th>
+          </tr>
+        </thead>
+        <tbody id="speakers"></tbody>
+      </table>
+    </div>
+
+    <h2>Findings</h2>
+    <div id="findings"></div>
+
+    <h2>Radio channels</h2>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Use</th><th>Channel</th><th>Speakers <span class="muted">(PHY errors/s)</span></th></tr></thead>
+        <tbody id="wireless"></tbody>
+      </table>
+    </div>
+
+    <div id="signal-section">
+      <h2>Speaker-to-speaker signal</h2>
+      <p id="signal-intro" class="muted" style="margin-bottom: 12px"></p>
+      <div class="card">
+        <div class="signal">
+          <div><svg id="signal-graph" viewBox="0 0 680 500" role="img" aria-label="Signal strength between speakers"></svg></div>
+          <div id="signal-detail"></div>
+        </div>
+        <div class="legend">
+          <span><span class="swatch sig-strong"></span>Strong (45+)</span>
+          <span><span class="swatch sig-fair"></span>Fair (30–44)</span>
+          <span><span class="swatch sig-weak"></span>Weak (18–29)</span>
+          <span><span class="swatch sig-poor"></span>Poor (under 18)</span>
+          <span>Thicker, darker lines are stronger. Hover or click a speaker to isolate it.</span>
+        </div>
+      </div>
+      <div class="card table-wrap" style="margin-top: 12px">
+        <table class="matrix"><thead id="matrix-head"></thead><tbody id="matrix-body"></tbody></table>
+      </div>
+      <p id="signal-excluded" class="muted" style="margin-top: 10px; font-size: 13px"></p>
+    </div>
+
+    <h2>Firmware</h2>
+    <div class="card table-wrap">
+      <table>
+        <thead><tr><th>Version</th><th>Status</th><th class="num">Speakers</th><th>Models</th></tr></thead>
+        <tbody id="firmware"></tbody>
+      </table>
+    </div>
+
+    <h2>Recommendations</h2>
+    <ol id="recommendations" class="card recs"></ol>
+  </section>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const SEVERITIES = ["high", "medium", "low", "info", "ok"];
+  const FIRMWARE_STATUS = { newest: "Newest in household", behind: "Update available", older_line: "Older release line" };
+  const fmt = (n) => Math.round(n).toLocaleString();
+
+  // Speaker names and findings come from the network, so everything is set via textContent.
+  function el(tag, props = {}, children = []) {
+    const node = Object.assign(document.createElement(tag), props);
+    node.append(...children);
+    return node;
+  }
+
+  function showError(message, details = []) {
+    const box = $("error");
+    box.replaceChildren(el("strong", { textContent: message }));
+    if (details.length) {
+      box.append(el("ul", {}, details.map((d) => el("li", { textContent: d }))));
+    }
+    box.hidden = false;
+  }
+
+  function chips(items) {
+    return el("div", { className: "chips" }, items.map(([name, note, cls]) =>
+      el("span", { className: "chip" }, [name, ...(note ? [el("span", { className: `note ${cls || ""}`, textContent: note })] : [])])
+    ));
+  }
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const BAND_LABEL = { strong: "Strong", fair: "Fair", weak: "Weak", poor: "Poor" };
+  const BAND_WIDTH = { strong: 5, fair: 3, weak: 1.75, poor: 1 };
+
+  function svg(tag, attrs = {}, children = []) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+    node.append(...children);
+    return node;
+  }
+
+  function renderSignal(connections) {
+    const { nodes = [], links = [], excluded = [] } = connections || {};
+    $("signal-section").hidden = nodes.length < 2;
+    if (nodes.length < 2) return;
+
+    $("signal-intro").textContent = connections.mesh_active
+      ? "How strongly each speaker's radio hears the others. With SonosNet on, these are the links the speakers use to reach each other."
+      : "How strongly each speaker's radio hears the others, as reported by the speakers. Your speakers reach each other "
+        + "through your Wi-Fi access point, so this shows how they are placed relative to one another rather than the path audio takes.";
+
+    const byIp = Object.fromEntries(nodes.map((n) => [n.ip, n]));
+    const peersOf = (ip) => links
+      .filter((l) => l.a === ip || l.b === ip)
+      .map((l) => ({ link: l, other: byIp[l.a === ip ? l.b : l.a], hears: l.a === ip ? l.a_hears_b : l.b_hears_a, heard: l.a === ip ? l.b_hears_a : l.a_hears_b }))
+      .sort((x, y) => y.link.strength - x.link.strength);
+
+    // Graph: speakers on a circle, one curve per pair that hear each other.
+    const cx = 340, cy = 250, radius = 165;
+    const pos = {};
+    nodes.forEach((n, i) => {
+      const angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
+      pos[n.ip] = { x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle), cos: Math.cos(angle), sin: Math.sin(angle) };
+    });
+    const linkEls = [...links].sort((x, y) => x.strength - y.strength).map((l) => {
+      const a = pos[l.a], b = pos[l.b];
+      // Pull the curve toward the centre so links between neighbours stay visible.
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const path = svg("path", {
+        d: `M${a.x},${a.y} Q${cx + (mx - cx) * 0.35},${cy + (my - cy) * 0.35} ${b.x},${b.y}`,
+        class: `link ${l.band}-stroke`, "stroke-width": BAND_WIDTH[l.band] || 1,
+      }, [svg("title", {}, [`${byIp[l.a].name} ↔ ${byIp[l.b].name}: ${l.strength} (${BAND_LABEL[l.band] || l.band})`])]);
+      path.link = l;
+      return path;
+    });
+    const nodeEls = nodes.map((n) => {
+      const p = pos[n.ip];
+      const anchor = Math.abs(p.cos) < 0.25 ? "middle" : p.cos > 0 ? "start" : "end";
+      const group = svg("g", { class: "node", tabindex: 0, role: "button", "aria-label": `${n.name}, ${n.link_count} links` }, [
+        svg("circle", { cx: p.x, cy: p.y, r: 16, style: "fill: transparent; stroke: none" }),
+        svg("circle", { cx: p.x, cy: p.y, r: 7 }),
+        svg("text", { x: p.x + p.cos * 16, y: p.y + p.sin * 18 + 4, "text-anchor": anchor }, [n.name]),
+      ]);
+      group.ip = n.ip;
+      return group;
+    });
+    $("signal-graph").replaceChildren(...linkEls, ...nodeEls);
+
+    let pinned = null;
+    function select(ip) {
+      for (const path of linkEls) {
+        const on = ip && (path.link.a === ip || path.link.b === ip);
+        path.classList.toggle("lit", !!on);
+        path.classList.toggle("dim", !!ip && !on);
+      }
+      const near = new Set(ip ? [ip, ...peersOf(ip).map((p) => p.other.ip)] : []);
+      for (const group of nodeEls) {
+        group.classList.toggle("active", group.ip === ip);
+        group.classList.toggle("dim", !!ip && !near.has(group.ip));
+      }
+      const detail = $("signal-detail");
+      if (!ip) {
+        const strongest = [...links].sort((x, y) => y.strength - x.strength).slice(0, 3);
+        const loneliest = nodes.filter((n) => !n.link_count);
+        detail.replaceChildren(
+          el("h3", { textContent: "Strongest links" }),
+          ...strongest.map((l) => peerRow(`${byIp[l.a].name} ↔ ${byIp[l.b].name}`, l)),
+          ...(loneliest.length ? [el("p", { className: "muted", style: "margin-top: 12px; font-size: 13px",
+            textContent: `Hears no other speaker: ${loneliest.map((n) => `${n.name} (${n.channel || "no channel"})`).join(", ")}. `
+              + "Speakers only hear others on the same channel." })] : []),
+        );
+        return;
+      }
+      const node = byIp[ip], peers = peersOf(ip);
+      detail.replaceChildren(
+        el("h3", { textContent: node.name }),
+        el("p", { className: "muted", style: "font-size: 13px; margin-bottom: 8px",
+          textContent: `${node.channel || "No channel"} · hears ${peers.length} other speaker${peers.length === 1 ? "" : "s"}` }),
+        ...peers.map((p) => peerRow(p.other.name, p.link, `${node.name} hears ${p.other.name} at ${p.hears}; ${p.other.name} hears ${node.name} at ${p.heard}`)),
+      );
+    }
+    function peerRow(name, link, title = "") {
+      return el("div", { className: "peer", title }, [
+        el("span", { className: "name", textContent: name }),
+        el("span", { className: "track" }, [el("div", { className: `bar sig-${link.band}`, style: `width: ${Math.min(100, (link.strength / 60) * 100)}%` })]),
+        el("span", { className: "value", textContent: Math.round(link.strength) }),
+        el("span", { className: "band", textContent: BAND_LABEL[link.band] || "" }),
+      ]);
+    }
+    for (const group of nodeEls) {
+      group.addEventListener("mouseenter", () => select(group.ip));
+      group.addEventListener("mouseleave", () => select(pinned));
+      group.addEventListener("focus", () => select(group.ip));
+      group.addEventListener("blur", () => select(pinned));
+      const toggle = () => { pinned = pinned === group.ip ? null : group.ip; select(pinned); };
+      group.addEventListener("click", toggle);
+      group.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+    }
+    select(null);
+
+    // Matrix: the same numbers as a table.
+    const strength = {};
+    for (const l of links) strength[`${l.a}|${l.b}`] = strength[`${l.b}|${l.a}`] = l;
+    $("matrix-head").replaceChildren(el("tr", {}, [el("th"), ...nodes.map((n) => el("th", { textContent: n.name }))]));
+    $("matrix-body").replaceChildren(...nodes.map((row) => el("tr", {}, [
+      el("th", { textContent: row.name }),
+      ...nodes.map((col) => {
+        if (row === col) return el("td", { className: "self" });
+        const l = strength[`${row.ip}|${col.ip}`];
+        if (!l) return el("td", { className: "none", textContent: "–", title: `${row.name} and ${col.name} do not hear each other` });
+        const hears = l.a === row.ip ? l.a_hears_b : l.b_hears_a, heard = l.a === row.ip ? l.b_hears_a : l.a_hears_b;
+        return el("td", { className: `sig-${l.band}`, textContent: Math.round(l.strength),
+          title: `${row.name} hears ${col.name} at ${hears}; ${col.name} hears ${row.name} at ${heard} (${BAND_LABEL[l.band]})` });
+      }),
+    ])));
+
+    const reasons = {};
+    for (const x of excluded) (reasons[x.reason] ||= []).push(x.name);
+    $("signal-excluded").textContent = excluded.length
+      ? "Not shown: " + Object.entries(reasons).map(([reason, names]) => `${[...new Set(names)].join(", ")} (${reason})`).join("; ") + "."
+      : "";
+  }
+
+  function render(report) {
+    const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
+    for (const f of report.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
+    const noisy = new Set(report.findings
+      .filter((f) => f.category === "wireless" && f.severity === "medium")
+      .flatMap((f) => f.affected_ips));
+
+    $("generated").textContent = `Scanned ${new Date(report.generated_at).toLocaleString()}`;
+    $("download-json").href = URL.createObjectURL(
+      new Blob([JSON.stringify(report, null, 2)], { type: "application/json" })
+    );
+
+    const tile = (value, label, cls = "") =>
+      el("div", { className: "card tile" }, [
+        el("div", { className: `value ${cls}`, textContent: value }),
+        el("div", { className: "label", textContent: label }),
+      ]);
+    $("tiles").replaceChildren(
+      tile(report.speaker_count, report.speaker_count === 1 ? "Speaker" : "Speakers"),
+      tile(report.room_count, report.room_count === 1 ? "Room" : "Rooms"),
+      tile(counts.high, "High severity", counts.high ? "high" : ""),
+      tile(counts.medium, "Medium severity", counts.medium ? "medium" : ""),
+      tile(counts.low, "Low severity", counts.low ? "low" : "")
+    );
+
+    const errors = report.fetch_errors || [];
+    $("fetch-errors").hidden = !errors.length;
+    $("fetch-errors").replaceChildren(
+      el("strong", { textContent: "Some speakers could not be read" }),
+      el("ul", {}, errors.map((e) => el("li", { textContent: e })))
+    );
+
+    const roomSizes = {};
+    for (const sp of report.speakers) roomSizes[sp.room_id] = (roomSizes[sp.room_id] || 0) + 1;
+    let previousRoom = null;
+    $("speakers").replaceChildren(...report.speakers.map((sp, i) => {
+      const member = sp.room_id === previousRoom;
+      const next = report.speakers[i + 1];
+      previousRoom = sp.room_id;
+      const bonded = roomSizes[sp.room_id] > 1;
+      const kind = sp.bond === "home_theater" ? "Home theater" : "Stereo pair";
+      const rate = sp.phy_errors_per_sec;
+      const wired = sp.ethernet_link && sp.ethernet_speed ? `${sp.ethernet_speed.replace("FD", " Mbps full duplex")}` : "";
+      const row = el("tr", {}, [
+        el("td", {}, member
+          ? [sp.role || sp.zone_name]
+          : [el("strong", { textContent: sp.room_name || "—" }),
+             el("span", { className: "sub", textContent: bonded ? `${kind} · ${sp.role}` : "" })]),
+        el("td", { textContent: sp.model_name || "—" }),
+        el("td", {}, [el("code", { textContent: sp.ip_address })]),
+        el("td", {}, [sp.connection_summary, el("span", { className: "sub", textContent: wired })]),
+        el("td", {}, [sp.display_version || sp.software_version || "—",
+          el("span", { className: "sub", textContent: sp.display_version ? sp.software_version : "" })]),
+        el("td", { className: sp.trueplay ? "" : "muted", textContent: sp.trueplay === "tuned" ? "Tuned" : sp.trueplay === "not tuned" ? "Not tuned" : "—" }),
+        el("td", { className: "num" + (noisy.has(sp.ip_address) && rate != null ? " medium" : ""),
+          textContent: rate == null ? "—" : fmt(rate) }),
+        el("td", { className: "num", textContent: sp.noise_floor_dbm == null ? "—" : `${sp.noise_floor_dbm} dBm` }),
+      ]);
+      if (member) row.classList.add("member");
+      if (next && next.room_id === sp.room_id) row.classList.add("has-members");
+      return row;
+    }));
+
+    $("findings").replaceChildren(...report.findings.map((f) => {
+      const sev = SEVERITIES.includes(f.severity) ? f.severity : "low";
+      const card = el("div", { className: `card finding ${sev}` }, [
+        el("div", { className: "head" }, [
+          el("span", { className: `badge ${sev}`, textContent: sev.toUpperCase() }),
+          el("h3", { textContent: f.title }),
+        ]),
+        el("p", { textContent: f.detail }),
+      ]);
+      if (f.affected.length) card.append(chips(f.affected.map((a) => [a.name, a.note])));
+      return card;
+    }));
+    if (!report.findings.length) {
+      $("findings").replaceChildren(el("p", { className: "muted", textContent: "No findings." }));
+    }
+
+    $("wireless").replaceChildren(...report.wireless.map((w) => el("tr", {}, [
+      el("td", { textContent: w.label }),
+      el("td", {}, w.channel
+        ? [`${w.band} · ch ${w.channel}`, el("span", { className: "sub", textContent: `${w.freq_mhz} MHz` })]
+        : ["—"]),
+      el("td", { className: "wrap" }, [chips(w.speakers.map((sp) => [
+        sp.name,
+        sp.phy_errors_per_sec == null ? "" : fmt(sp.phy_errors_per_sec),
+        noisy.has(sp.ip) ? "medium" : "",
+      ]))]),
+    ])));
+
+    renderSignal(report.connections);
+
+    $("firmware").replaceChildren(...report.firmware.map((g) => el("tr", {}, [
+      el("td", {}, [g.display_version || g.version, el("span", { className: "sub", textContent: g.display_version ? g.version : "" })]),
+      el("td", { className: g.status === "behind" ? "medium" : "", textContent: FIRMWARE_STATUS[g.status] || g.status }),
+      el("td", { className: "num", textContent: g.count }),
+      el("td", { className: "wrap", textContent: g.models.join(", ") }),
+    ])));
+
+    $("recommendations").replaceChildren(...report.recommendations.map((r) => el("li", { textContent: r })));
+
+    $("empty").hidden = true;
+    $("results").hidden = false;
+  }
+
+  $("scan-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("scan-button");
+    const ips = $("ips").value.split(/[\s,]+/).filter(Boolean);
+    button.disabled = true;
+    button.textContent = "Scanning… about 15 s";
+    $("error").hidden = true;
+    try {
+      const resp = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ips, discover_timeout: Number($("timeout").value) || 3 }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        showError(data.error || `Scan failed (${resp.status})`, data.fetch_errors || []);
+      } else {
+        render(data);
+      }
+    } catch (err) {
+      showError(`Could not reach the analyzer: ${err.message}`);
+    } finally {
+      button.disabled = false;
+      button.textContent = "Scan network";
+    }
+  });
+
+  // Show the most recent scan after a reload.
+  fetch("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch(() => {});
+</script>
+</body>
+</html>

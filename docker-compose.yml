@@ -1,0 +1,11 @@
+services:
+  sonos-analyzer:
+    build: .
+    image: sonos-analyzer:latest
+    container_name: sonos-analyzer
+    # Host networking is required for SSDP discovery: multicast does not cross
+    # Docker's bridge network. The UI is served on the host at SONOS_ANALYZER_PORT.
+    network_mode: host
+    environment:
+      SONOS_ANALYZER_PORT: "8400"
+    restart: unless-stopped
