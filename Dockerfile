@@ -19,6 +19,6 @@ USER nobody
 EXPOSE 8400
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-  CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/healthz' % os.environ['SONOS_ANALYZER_PORT'], timeout=2)"
+  CMD python -c "import os,urllib.request; h=os.environ['SONOS_ANALYZER_HOST']; urllib.request.urlopen('http://%s:%s/healthz' % ('127.0.0.1' if h == '0.0.0.0' else h, os.environ['SONOS_ANALYZER_PORT']), timeout=2)"
 
 CMD ["sonos-analyzer-web"]

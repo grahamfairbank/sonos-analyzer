@@ -6,25 +6,91 @@ This is a fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/so
 
 Uses the same diagnostic endpoints Sonos exposes locally (`/support/review`, UPnP zone topology). **No cloud account required.** Your speakers must be reachable on the same network as the machine running this tool.
 
-## Requirements
+## Quick start with Docker
 
-- Python 3.10+
-- No third-party dependencies (stdlib only)
-
-## Install
+The easiest way to run the web UI. You need a Linux machine on the same network as your speakers, with [Docker Engine](https://docs.docker.com/engine/install/) and the Compose plugin (`docker compose version` should print a version).
 
 ```bash
+git clone https://github.com/grahamfairbank/sonos-analyzer.git
 cd sonos-analyzer
-pip install -e .
+docker compose up -d --build
 ```
 
-Or run without installing:
+Then open `http://<address-of-that-machine>:8400` and press **Scan network**. A scan takes about 10 seconds.
+
+Check that it started:
+
+```bash
+docker compose ps        # STATUS should show "healthy"
+docker compose logs -f   # request log; Ctrl+C to stop following
+```
+
+### Day-to-day
+
+| Task | Command |
+|---|---|
+| Stop | `docker compose down` |
+| Start again | `docker compose up -d` |
+| Update to the latest version | `git pull && docker compose up -d --build` |
+| Remove completely | `docker compose down --rmi local` |
+
+The container restarts automatically after a reboot or crash unless you stopped it yourself.
+
+### Settings
+
+Set these under `environment:` in `docker-compose.yml`, then run `docker compose up -d` again.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SONOS_ANALYZER_PORT` | `8400` | Port the web UI listens on |
+| `SONOS_ANALYZER_INTERFACE` | all interfaces | Limit speaker discovery to one interface, by name (`eth0`) or IPv4 address |
+| `SONOS_ANALYZER_HOST` | `0.0.0.0` | Address the web UI binds to; set it to one of the host's addresses to serve the UI on that network only |
+
+### Without Compose
+
+```bash
+docker build -t sonos-analyzer .
+docker run -d --name sonos-analyzer --network host --restart unless-stopped sonos-analyzer
+```
+
+Add `-e SONOS_ANALYZER_PORT=9000` (or any other setting above) before the image name to change a setting.
+
+### Why host networking, and macOS / Windows
+
+The container uses the host's network directly (`network_mode: host`) rather than a published port. Speaker discovery relies on multicast, which does not cross Docker's default bridge network. This works on Linux.
+
+Docker Desktop on macOS and Windows runs containers inside a virtual machine, so host networking does not reach your LAN and discovery finds nothing. On those systems either run the tool with Python (below), or publish the port and type speaker IPs into the UI instead of using discovery:
+
+```bash
+docker run -d --name sonos-analyzer -p 8400:8400 sonos-analyzer
+```
+
+This bridge-mode setup has not been tested against speakers on macOS or Windows.
+
+### Troubleshooting
+
+- **"No Sonos speakers discovered"**: the host is probably not on the speakers' network (a different VLAN or subnet), or the network blocks multicast. Enter one speaker's IP in the UI; a single speaker describes the whole household. Find IPs in the Sonos app under Settings > System > About My System.
+- **"Could not read diagnostics from any speaker"**: discovery worked but the host cannot open TCP port 1400 on the speakers. Check routing and firewall rules between the two networks.
+- **The page does not load**: check `docker compose ps`, that nothing else uses port 8400 (`ss -ltn | grep 8400`), and that the host's firewall allows the port.
+- **The UI has no login.** Anyone who can reach the port can run scans, so keep it on a trusted LAN and do not expose it to the internet. It only probes private IPv4 addresses and never changes speaker settings.
+
+## Install with Python
+
+Requires Python 3.10+; there are no third-party dependencies.
+
+```bash
+git clone https://github.com/grahamfairbank/sonos-analyzer.git
+cd sonos-analyzer
+pip install .
+```
+
+Or run from the checkout without installing:
 
 ```bash
 python -m sonos_analyzer
 ```
 
-## Usage
+## Command-line usage
 
 Discover speakers automatically (SSDP):
 
@@ -50,25 +116,15 @@ Quiet mode (files only):
 sonos-analyzer --ips 192.168.1.165 --json report.json --html report.html --quiet
 ```
 
-## Web UI
+Discovery is sent on every network interface; `--interface eth0` limits it to one. `--phy-sample 0` skips the Wi-Fi error-rate measurement for a faster scan.
 
-Serve a browser front end instead of using the CLI:
+## Web UI without Docker
 
 ```bash
 sonos-analyzer-web --host 0.0.0.0 --port 8400
 ```
 
-Then open `http://<host>:8400`. Leave the IP field empty to auto-discover, or enter speaker IPs. The page shows the same speakers, findings and recommendations as the CLI, and lets you download the JSON/HTML reports.
-
-The UI has no authentication — run it only on a trusted LAN. It only probes private IPv4 addresses.
-
-### Docker
-
-```bash
-docker compose up -d --build
-```
-
-The container uses **host networking** (Linux), which SSDP discovery needs because multicast does not cross Docker's bridge network. Change the port with `SONOS_ANALYZER_PORT` in `docker-compose.yml`. Discovery is sent on every network interface, so multi-homed hosts work without configuration; set `SONOS_ANALYZER_INTERFACE` (interface name or IPv4 address, also `--interface` on the CLI) to limit it to one. On Docker Desktop (macOS/Windows) host networking is limited, so enter speaker IPs manually.
+Then open `http://<host>:8400`. Leave the IP field empty to auto-discover, or enter speaker IPs. The page shows the speakers, findings, channel map and signal matrix, and lets you download the JSON and HTML reports. By default it binds to `127.0.0.1` only.
 
 ## What it checks
 
@@ -85,7 +141,7 @@ The container uses **host networking** (Linux), which SSDP discovery needs becau
 ## Limitations
 
 - Must run on the **same LAN** as your Sonos system
-- Some networks block SSDP multicast — use `--ips` if discovery finds nothing
+- Some networks block SSDP multicast — enter speaker IPs (`--ips` or the UI field) if discovery finds nothing
 - Diagnostics are read-only; the tool does not change Sonos settings
 - Findings are heuristic guidance, not official Sonos support output
 
