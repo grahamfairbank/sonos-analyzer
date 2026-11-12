@@ -24,6 +24,10 @@ Fixes from an [independent Fable review](docs/reviews/2026-11-12-fable-review.md
 - `--interface` on Windows gave an unhelpful error; the docs now say discovery on every interface is Linux-only (F12).
 - Clearer off-network hint, scan-time wording, macOS bundle version format; 100.64.0.0/10 addresses are allowed (F11, F15).
 
+### Changed
+
+- The Mac download is now one universal app for Apple silicon and Intel (`…-macos-universal.zip`), replacing the separate Apple-silicon and Intel builds. GitHub's Apple-silicon build machines repeatedly failed to start the build. The beta.2 downloads were rebuilt after release for this change.
+
 ## [0.4.0-beta.1] - 2026-11-12
 
 Pilot pre-release of the desktop app.
