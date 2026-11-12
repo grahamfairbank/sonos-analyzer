@@ -1,5 +1,5 @@
-# Builds the desktop app for Windows and macOS (Apple silicon and Intel) and
-# attaches it to the GitHub release. Builds are unsigned (pilot).
+# Builds the desktop app for Windows and macOS (one universal app for Apple silicon
+# and Intel) and attaches it to the GitHub release. Builds are unsigned (pilot).
 name: Build desktop app
 
 on:
@@ -27,10 +27,10 @@ jobs:
         include:
           - os: windows-latest
             label: windows-x64
-          - os: macos-15
-            label: macos-apple-silicon
+          # One universal app for both Mac types, built on the Intel machines:
+          # GitHub's Apple-silicon machines repeatedly never picked up the job.
           - os: macos-15-intel
-            label: macos-intel
+            label: macos-universal
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -41,10 +41,26 @@ jobs:
           ref: ${{ env.TAG }}
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: runner.os == 'Windows'
         with:
           python-version: "3.12"
 
-      - run: pip install pyinstaller==6.22.3
+      # A universal app needs a universal Python: python.org's universal2 installer, pinned by hash.
+      - name: Install universal2 Python (macOS)
+        if: runner.os == 'macOS'
+        env:
+          PY_PKG: python-3.12.10-macos11.pkg
+          PY_SHA256: 8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/$PY_PKG" "https://www.python.org/ftp/python/3.12.10/$PY_PKG"
+          echo "$PY_SHA256  $RUNNER_TEMP/$PY_PKG" | shasum -a 256 -c -
+          sudo installer -pkg "$RUNNER_TEMP/$PY_PKG" -target /
+          PY=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+          lipo -archs "$PY"
+          "$PY" -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+
+      - run: python -m pip install pyinstaller==6.22.3
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -58,7 +74,7 @@ jobs:
       - name: Build (macOS)
         if: runner.os == 'macOS'
         run: |
-          pyinstaller --noconfirm --windowed --name "Sonos Analyzer" \
+          pyinstaller --noconfirm --windowed --name "Sonos Analyzer" --target-arch universal2 \
             --osx-bundle-identifier dev.grahamfairbank.sonos-analyzer \
             --paths . --add-data "sonos_analyzer/static:sonos_analyzer/static" packaging/launcher.py
           APP="dist/Sonos Analyzer.app"
@@ -74,6 +90,10 @@ jobs:
           codesign --force --deep --sign - "$APP"
           mkdir out
           ditto -c -k --keepParent "$APP" "out/SonosAnalyzer-${TAG#v}-${{ matrix.label }}.zip"
+          # Fail unless the app really contains both Apple-silicon and Intel code.
+          ARCHS=$(lipo -archs "$APP/Contents/MacOS/Sonos Analyzer")
+          echo "Architectures: $ARCHS"
+          [[ "$ARCHS" == *arm64* && "$ARCHS" == *x86_64* ]]
           echo "BIN=$APP/Contents/MacOS/Sonos Analyzer" >> "$GITHUB_ENV"
 
       - name: Smoke test
