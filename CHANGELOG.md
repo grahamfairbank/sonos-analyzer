@@ -2,6 +2,12 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Scans were refused with "Cross-origin requests are not allowed" when the web UI is served over HTTPS by a reverse proxy (TLS offload). An `https://` origin for the same host name is now accepted as well as `http://`.
+
 ## [0.4.0-beta.2] - 2026-11-12
 
 Fixes from an [independent Fable review](docs/reviews/2026-11-12-fable-review.md) of 0.4.0-beta.1.
