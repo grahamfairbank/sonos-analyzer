@@ -28,6 +28,8 @@ Pilot version 0.4.0 beta 2. Select the file for your computer to download it:
 | Mac with Apple silicon (M1 or later) | [SonosAnalyzer-0.4.0-beta.2-macos-apple-silicon.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-macos-apple-silicon.zip) |
 | Mac with an Intel processor | [SonosAnalyzer-0.4.0-beta.2-macos-intel.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-macos-intel.zip) (about 9 MB) |
 
+If the Apple-silicon link says the file isn't found, its build is still waiting on GitHub; the Intel version also runs on Apple-silicon Macs (macOS offers to install Rosetta the first time).
+
 To check which Mac you have: Apple menu > **About This Mac**. "Chip: Apple M…" means Apple silicon; "Processor: Intel…" means Intel.
 
 These links are for this pilot version; newer versions are listed on the [releases page](https://github.com/grahamfairbank/sonos-analyzer/releases), under **Assets**.
