@@ -2,6 +2,28 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.4.0-beta.2] - 2026-11-12
+
+Fixes from an [independent Fable review](docs/reviews/2026-11-12-fable-review.md) of 0.4.0-beta.1.
+
+### Security
+
+- The web server refuses requests addressed to unknown host names, which blocks DNS-rebinding attacks from websites; new `SONOS_ANALYZER_ALLOWED_HOSTS` setting for names you use (F1). Cross-origin POSTs are refused.
+- Speaker requests never follow redirects, responses are capped at 8 MiB, and only private IPv4 addresses are contacted, including addresses learned from discovery or from the speakers themselves (F2, F3).
+- Speaker-supplied text has control characters removed before it is shown or logged (F14).
+- Desktop build jobs no longer have write access to releases; PyInstaller and every GitHub Action are pinned; releases include `SHA256SUMS.txt`; Dependabot keeps the pins current (F5, F8).
+
+### Fixed
+
+- Room names containing `&`, `"` or `<` broke all room, stereo-pair and home theater analysis (F4).
+- Invalid or negative `Content-Length` could hang a request; idle connections are now dropped after 30 seconds (F6).
+- On Windows the desktop app could start on a port another program was already using (F7).
+- A wired speaker with Wi-Fi turned off could be reported as having its radio on (F10).
+- Discovery stops after 64 speakers, so a flood of fake replies cannot stall a scan (F9).
+- Firmware comparison groups by model number, and no longer guesses when a speaker's model can't be read (F13).
+- `--interface` on Windows gave an unhelpful error; the docs now say discovery on every interface is Linux-only (F12).
+- Clearer off-network hint, scan-time wording, macOS bundle version format; 100.64.0.0/10 addresses are allowed (F11, F15).
+
 ## [0.4.0-beta.1] - 2026-11-12
 
 Pilot pre-release of the desktop app.
@@ -59,6 +81,7 @@ Pilot pre-release of the desktop app.
 
 Original command-line analyzer by David Klein ([soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer)).
 
+[0.4.0-beta.2]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [0.4.0-beta.1]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.3.0...v0.4.0-beta.1
 [0.3.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/56892df...4530d00

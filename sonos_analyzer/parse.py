@@ -7,6 +7,8 @@ import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+from sonos_analyzer.targets import clean_text, is_allowed_target
+
 
 @dataclass
 class IfconfigStats:
@@ -87,7 +89,7 @@ def parse_review_xml(xml_text: str) -> dict[str, SpeakerDiagnostics]:
 
     for block in root.findall("ZPSupportInfo"):
         speaker = _parse_support_block(block)
-        if speaker and speaker.ip_address:
+        if speaker and is_allowed_target(speaker.ip_address):
             speakers[speaker.ip_address] = speaker
 
     return speakers
@@ -107,7 +109,7 @@ def parse_device_description(xml_text: str) -> dict[str, str]:
         el = device.find(f"d:{tag}", ns)
         if el is None:
             el = device.find(tag)
-        return (el.text or "").strip() if el is not None else ""
+        return clean_text((el.text or "").strip()) if el is not None else ""
 
     return {
         "model_name": text("modelName"),
@@ -122,8 +124,12 @@ def parse_zone_group_state(xml_text: str) -> dict[str, SpeakerDiagnostics]:
     if not xml_text:
         return {}
 
-    unescaped = html.unescape(xml_text.strip())
-    root = ET.fromstring(unescaped)
+    # fetch_zone_group_state returns the inner XML already unescaped by ElementTree;
+    # unescaping again breaks room names that contain "&", "<" or quotes.
+    text = xml_text.strip()
+    if text.startswith("&lt;"):
+        text = html.unescape(text)
+    root = ET.fromstring(text)
     speakers: dict[str, SpeakerDiagnostics] = {}
 
     for group in root.findall(".//ZoneGroup"):
@@ -154,7 +160,7 @@ def _parse_zone_member(member: ET.Element, coordinator: str, group_id: str) -> S
     channel_map = attrib.get("ChannelMapSet", "")
     ht_map = attrib.get("HTSatChanMapSet", "")
     speaker = SpeakerDiagnostics(
-        zone_name=attrib.get("ZoneName", ip),
+        zone_name=clean_text(attrib.get("ZoneName", ip)),
         ip_address=ip,
         local_uid=uuid,
         software_version=attrib.get("SoftwareVersion", ""),
@@ -225,7 +231,10 @@ def merge_speakers(*maps: dict[str, SpeakerDiagnostics]) -> dict[str, SpeakerDia
                 current = getattr(existing, key)
                 if isinstance(current, IfconfigStats):
                     continue
-                if current in ("", 0, False, None, []) and value not in ("", 0, False, None, []):
+                if current is None and value is not None:
+                    # e.g. WifiEnabled="0" from topology must fill an unknown, not be dropped.
+                    setattr(existing, key, value)
+                elif current in ("", 0, False, []) and value not in ("", 0, False, None, []):
                     setattr(existing, key, value)
     return merged
 
@@ -237,7 +246,7 @@ def _parse_support_block(block: ET.Element) -> SpeakerDiagnostics | None:
 
     def zp_text(tag: str) -> str:
         el = zp.find(tag)
-        return (el.text or "").strip() if el is not None else ""
+        return clean_text((el.text or "").strip()) if el is not None else ""
 
     speaker = SpeakerDiagnostics(
         zone_name=zp_text("ZoneName"),
@@ -406,9 +415,9 @@ def _connection_type_label(code: str) -> str:
 
 def _child_text(parent: ET.Element, tag: str) -> str:
     el = parent.find(tag)
-    return (el.text or "").strip() if el is not None else ""
+    return clean_text((el.text or "").strip()) if el is not None else ""
 
 
 def _ip_from_location(location: str) -> str | None:
     match = re.match(r"https?://([^:/]+)", location)
-    return match.group(1) if match else None
+    return match.group(1) if match and is_allowed_target(match.group(1)) else None

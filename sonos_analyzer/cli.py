@@ -66,7 +66,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.ips:
         ips = [ip.strip() for ip in args.ips.split(",") if ip.strip()]
     else:
-        discovered = discover_speakers(timeout=args.discover_timeout, interface=args.interface)
+        try:
+            discovered = discover_speakers(timeout=args.discover_timeout, interface=args.interface)
+        except (OSError, ImportError) as exc:
+            print(f"Discovery failed: {exc}. On Windows and macOS, give --interface as an IPv4 address.", file=sys.stderr)
+            return 1
         ips = [d.ip for d in discovered]
         if not ips:
             print(

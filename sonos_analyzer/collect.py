@@ -13,6 +13,7 @@ from sonos_analyzer.fetch import (
     fetch_zone_group_state,
     is_reachable,
 )
+from sonos_analyzer.targets import clean_text
 from sonos_analyzer.parse import (
     HouseholdSnapshot,
     merge_speakers,
@@ -52,7 +53,7 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0) -> Househo
         try:
             review = parse_review_xml(fetch_review(ip))
         except Exception as exc:  # noqa: BLE001 - surface as non-fatal
-            snapshot.fetch_errors.append(f"{ip}: {exc}")
+            snapshot.fetch_errors.append(clean_text(f"{ip}: {exc}"))
             continue
         review_maps.append(review)
         covered.update(review)
@@ -65,7 +66,7 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0) -> Househo
             group_maps.append(parse_zone_group_state(fetch_zone_group_state(ip)))
             break
         except Exception as exc:  # noqa: BLE001 - surface as non-fatal
-            group_errors.append(f"{ip} zone group: {exc}")
+            group_errors.append(clean_text(f"{ip} zone group: {exc}"))
     if not group_maps:
         snapshot.fetch_errors.extend(group_errors)
 
@@ -86,7 +87,7 @@ def _add_device_descriptions(snapshot: HouseholdSnapshot, pool: ThreadPoolExecut
         try:
             return parse_device_description(fetch_device_description(ip))
         except Exception as exc:  # noqa: BLE001 - surface as non-fatal
-            return f"{ip} description: {exc}"
+            return clean_text(f"{ip} description: {exc}")
 
     ips = list(snapshot.speakers)
     for ip, meta in zip(ips, pool.map(describe, ips)):

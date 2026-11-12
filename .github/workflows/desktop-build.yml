@@ -11,8 +11,10 @@ on:
         description: Release tag to attach the builds to
         required: true
 
+# Build jobs run third-party build tools, so they only get read access;
+# the attach job alone can write to the release.
 permissions:
-  contents: write
+  contents: read
 
 env:
   TAG: ${{ github.event.release.tag_name || inputs.tag }}
@@ -34,15 +36,15 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
 
-      - run: pip install pyinstaller
+      - run: pip install pyinstaller==6.22.3
 
       - name: Build (Windows)
         if: runner.os == 'Windows'
@@ -65,7 +67,10 @@ jobs:
           plutil -insert NSLocalNetworkUsageDescription -string \
             "Sonos Analyzer reads diagnostics from the Sonos speakers on your network." "$PLIST"
           plutil -insert LSUIElement -bool true "$PLIST"
-          plutil -replace CFBundleShortVersionString -string "${TAG#v}" "$PLIST"
+          # Apple expects a plain x.y.z here; the full pre-release version goes in CFBundleVersion.
+          VERSION="${TAG#v}"
+          plutil -replace CFBundleShortVersionString -string "${VERSION%%-*}" "$PLIST"
+          plutil -replace CFBundleVersion -string "$VERSION" "$PLIST"
           codesign --force --deep --sign - "$APP"
           mkdir out
           ditto -c -k --keepParent "$APP" "out/SonosAnalyzer-${TAG#v}-${{ matrix.label }}.zip"
@@ -83,7 +88,7 @@ jobs:
           grep -q "Sonos Analyzer" <<< "$page"
           curl -sf -X POST -H "Content-Type: application/json" -d "{}" http://127.0.0.1:8400/api/quit
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.label }}
           path: out/*
@@ -93,12 +98,21 @@ jobs:
     # Attach whatever built, so one stuck runner doesn't hold back the other platforms.
     if: ${{ always() }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: out
           merge-multiple: true
+      - name: Checksums
+        run: |
+          cd out
+          rm -f SHA256SUMS.txt
+          sha256sum SonosAnalyzer-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Attach to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$TAG" out/* --clobber --repo "${{ github.repository }}"
+          REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" out/* --clobber --repo "$REPO"

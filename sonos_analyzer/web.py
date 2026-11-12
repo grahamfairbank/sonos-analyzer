@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import signal
+import socket
 import threading
 import time
 from http import HTTPStatus
@@ -18,6 +19,7 @@ from sonos_analyzer.analyze import AnalysisReport, analyze
 from sonos_analyzer.collect import collect_snapshot
 from sonos_analyzer.discovery import discover_speakers, off_network_hint
 from sonos_analyzer.report import render_html, report_payload
+from sonos_analyzer.targets import is_allowed_target
 
 
 MAX_BODY = 16 * 1024
@@ -25,6 +27,13 @@ MAX_IPS = 64
 MAX_DISCOVER_TIMEOUT = 15.0
 
 DISCOVERY_INTERFACE = os.environ.get("SONOS_ANALYZER_INTERFACE") or None
+# Host names the page may be opened by, besides IP addresses, localhost, *.local and this
+# machine's own name. Anything else is refused, which stops DNS-rebinding attacks.
+EXTRA_ALLOWED_HOSTS = {
+    name.strip().lower().rstrip(".")
+    for name in os.environ.get("SONOS_ANALYZER_ALLOWED_HOSTS", "").split(",")
+    if name.strip()
+}
 
 _scan_lock = threading.Lock()
 _last_report: AnalysisReport | None = None
@@ -56,15 +65,45 @@ def parse_ips(raw: object) -> list[str]:
 
     ips: list[str] = []
     for item in raw:
-        try:
-            addr = ipaddress.ip_address(str(item).strip())
-        except ValueError:
-            raise ScanError(HTTPStatus.BAD_REQUEST, f"Not a valid IP address: {item}") from None
-        if addr.version != 4 or not addr.is_private:
+        text = str(item).strip()
+        if not is_allowed_target(text):
             raise ScanError(HTTPStatus.BAD_REQUEST, f"Not a private IPv4 address: {item}")
-        if str(addr) not in ips:
-            ips.append(str(addr))
+        if text not in ips:
+            ips.append(text)
     return ips
+
+
+def _own_names() -> set[str]:
+    names = {"localhost"}
+    for name in (socket.gethostname(), socket.getfqdn()):
+        if name:
+            names.add(name.lower().rstrip("."))
+    return names
+
+
+_OWN_NAMES = _own_names()
+
+
+def host_allowed(host_header: str | None) -> bool:
+    """Accept IP literals, localhost, *.local, this machine's names and configured names."""
+    if not host_header:
+        return True  # HTTP/1.0 clients; browsers always send Host
+    host = host_header.strip().lower()
+    if host.startswith("["):
+        host = host[1 : host.find("]")] if "]" in host else host
+    else:
+        host = host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+    host = host.rstrip(".")
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    return (
+        host in _OWN_NAMES
+        or host in EXTRA_ALLOWED_HOSTS
+        or host.endswith((".localhost", ".local"))
+    )
 
 
 def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
@@ -76,7 +115,7 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
         if not ips:
             try:
                 found = discover_speakers(timeout=discover_timeout, interface=DISCOVERY_INTERFACE)
-            except OSError as exc:
+            except (OSError, ImportError) as exc:
                 raise ScanError(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     f"Discovery failed on interface {DISCOVERY_INTERFACE or 'all'}: {exc}",
@@ -107,9 +146,35 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = f"sonos-analyzer/{__version__}"
+    # Drop connections that stall, so slow or half-open clients cannot hold threads.
+    timeout = 30
+
+    def _refuse_foreign_host(self) -> bool:
+        """Refuse names that could come from DNS rebinding; True when the request was refused."""
+        host = self.headers.get("Host")
+        if host_allowed(host):
+            return False
+        self._send_json(
+            HTTPStatus.FORBIDDEN,
+            {
+                "error": f"This page cannot be opened as {host}. Open it by IP address, or add the name to "
+                "SONOS_ANALYZER_ALLOWED_HOSTS."
+            },
+        )
+        return True
+
+    def _refuse_cross_origin(self) -> bool:
+        """For state-changing requests, any Origin must be this page's own; True when refused."""
+        origin = self.headers.get("Origin")
+        if origin is None or origin.lower() == f"http://{(self.headers.get('Host') or '').lower()}":
+            return False
+        self._send_json(HTTPStatus.FORBIDDEN, {"error": "Cross-origin requests are not allowed"})
+        return True
 
     def do_GET(self) -> None:  # noqa: N802 - http.server naming
         global last_activity
+        if self._refuse_foreign_host():
+            return
         last_activity = time.monotonic()
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
@@ -139,6 +204,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - http.server naming
         global last_activity
+        if self._refuse_foreign_host() or self._refuse_cross_origin():
+            return
         last_activity = time.monotonic()
         path = self.path.split("?", 1)[0]
         if path == "/api/quit" and APP_MODE and on_quit:
@@ -159,7 +226,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         try:
-            length = int(self.headers.get("Content-Length", "0"))
+            raw_length = self.headers.get("Content-Length")
+            if raw_length is None:
+                raise ScanError(HTTPStatus.LENGTH_REQUIRED, "Content-Length is required")
+            try:
+                length = int(raw_length)
+            except ValueError:
+                raise ScanError(HTTPStatus.BAD_REQUEST, "Content-Length must be a number") from None
+            if length < 0:
+                raise ScanError(HTTPStatus.BAD_REQUEST, "Content-Length must not be negative")
             if length > MAX_BODY:
                 raise ScanError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, "Request body too large")
             try:

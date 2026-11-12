@@ -254,7 +254,7 @@
 <script>
   const $ = (id) => document.getElementById(id);
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
-  const FIRMWARE_STATUS = { newest: "Newest in household", behind: "Update available", older_line: "Older release line" };
+  const FIRMWARE_STATUS = { newest: "Newest in household", behind: "Update available", older_line: "Older release line", unknown: "Model unknown" };
   const fmt = (n) => Math.round(n).toLocaleString();
 
   // Speaker names and findings come from the network, so everything is set via textContent.
@@ -523,7 +523,7 @@
     const button = $("scan-button");
     const ips = $("ips").value.split(/[\s,]+/).filter(Boolean);
     button.disabled = true;
-    button.textContent = "Scanning… about 15 s";
+    button.textContent = "Scanning… about 10 s";
     $("error").hidden = true;
     try {
       const resp = await fetch("/api/analyze", {

@@ -64,6 +64,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `docker compose
 | `SONOS_ANALYZER_PORT` | `8400` | Port the web UI listens on |
 | `SONOS_ANALYZER_INTERFACE` | all interfaces | Limit speaker discovery to one interface, by name (`eth0`) or IPv4 address |
 | `SONOS_ANALYZER_HOST` | `0.0.0.0` | Address the web UI binds to; set it to one of the host's addresses to serve the UI on that network only |
+| `SONOS_ANALYZER_ALLOWED_HOSTS` | none | Host names you open the page by, comma-separated (for example `nas.home.lan`). IP addresses, `localhost`, `.local` names and the machine's own name always work; other names are refused to block DNS-rebinding attacks. With Compose, put it in a `.env` file next to `docker-compose.yml`. |
 
 ### Without Compose
 
@@ -92,6 +93,7 @@ Docker Desktop on macOS and Windows runs containers inside a virtual machine, so
 
 - **"No Sonos speakers discovered"**: the host is probably not on the speakers' network (a different VLAN or subnet), or the network blocks multicast. Enter one speaker's IP in the UI; a single speaker describes the whole household. Find IPs in the Sonos app under Settings > System > About My System.
 - **"Could not read diagnostics from any speaker"**: discovery worked but the host cannot open TCP port 1400 on the speakers. Check routing and firewall rules between the two networks.
+- **"This page cannot be opened as …"**: you opened the page by a host name the analyzer doesn't know. Open it by IP address, or add the name to `SONOS_ANALYZER_ALLOWED_HOSTS` (see [Settings](#settings)).
 - **The page does not load**: check `docker compose ps`, that nothing else uses port 8400 (`ss -ltn | grep 8400`), and that the host's firewall allows the port.
 - **The UI has no login.** Anyone who can reach the port can run scans, so keep it on a trusted LAN and do not expose it to the internet. It only probes private IPv4 addresses and never changes speaker settings.
 
@@ -137,7 +139,7 @@ Quiet mode (files only):
 sonos-analyzer --ips 192.168.1.165 --json report.json --html report.html --quiet
 ```
 
-Discovery is sent on every network interface; `--interface eth0` limits it to one. `--phy-sample 0` skips the Wi-Fi error-rate measurement for a faster scan.
+On Linux, discovery is sent on every network interface and `--interface eth0` limits it to one. On Windows and macOS it uses the default network route, and `--interface` takes an IPv4 address. `--phy-sample 0` skips the Wi-Fi error-rate measurement for a faster scan.
 
 ## Web UI without Docker
 
@@ -174,6 +176,14 @@ sonos-analyzer --ips 192.168.1.165,192.168.1.89,192.168.1.193 \
   --html sonos-report.html
 ```
 
+## Security and reviews
+
+The analyzer only reads from speakers, and only contacts private IPv4 addresses on port 1400, never following redirects. The web UI has no login: on a server, keep it on a trusted LAN; the desktop app and the Docker Desktop setup only listen on the computer itself.
+
+Independent reviews and what was done about each finding:
+
+- [2026-11-12: Fable review of v0.4.0-beta.1](docs/reviews/2026-11-12-fable-review.md), fixed in v0.4.0-beta.2
+
 ## Changes from the original
 
 See [CHANGELOG.md](CHANGELOG.md) for each release. Based on [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer) 0.1.0. This fork adds:
@@ -182,7 +192,7 @@ See [CHANGELOG.md](CHANGELOG.md) for each release. Based on [soinkleined/sonos-a
 - Rooms: stereo pairs and home theater sets grouped with roles, and checked as a unit
 - Measured Wi-Fi PHY error rates, a radio channel map and a speaker-to-speaker signal matrix
 - Wired checks, per-model firmware comparison, and findings grouped per issue
-- Discovery on every network interface, and scans roughly five times faster on large households
+- Discovery on every network interface (Linux), and scans roughly five times faster on large households
 - A ready-built multi-architecture image on GitHub Container Registry, and a Docker Desktop guide for laptops
 - Fixes: model name and version were never read from the device description; the Trueplay state was interpreted the wrong way round
 

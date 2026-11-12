@@ -9,11 +9,35 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 from sonos_analyzer import __version__
+from sonos_analyzer.targets import is_allowed_target
 
 
 DEFAULT_PORT = 1400
 TIMEOUT = 8
 USER_AGENT = f"sonos-analyzer/{__version__}"
+# A household review is a few hundred KB even for large systems.
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Speakers never redirect; following one would let a device send us anywhere."""
+
+    def redirect_request(self, *args, **kwargs):  # noqa: ANN002, ANN003
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
+
+
+def _open(req: urllib.request.Request) -> str:
+    host = urllib.request.urlparse(req.full_url).hostname
+    if not is_allowed_target(host):
+        raise ValueError(f"refusing to contact {host}: not a private IPv4 address")
+    with _OPENER.open(req, timeout=TIMEOUT) as resp:
+        data = resp.read(MAX_RESPONSE_BYTES + 1)
+    if len(data) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"response from {host} is larger than {MAX_RESPONSE_BYTES} bytes")
+    return data.decode("utf-8", errors="replace")
 
 
 @dataclass
@@ -23,9 +47,7 @@ class FetchError:
 
 
 def _get(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    return _open(urllib.request.Request(url, headers={"User-Agent": USER_AGENT}))
 
 
 def _soap(ip: str, service_path: str, action: str, body: str) -> str:
@@ -46,12 +68,13 @@ def _soap(ip: str, service_path: str, action: str, body: str) -> str:
         },
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-        return resp.read().decode("utf-8", errors="replace")
+    return _open(req)
 
 
 def is_reachable(ip: str, timeout: float = 2.0) -> bool:
     """Quick check that the speaker's port accepts connections."""
+    if not is_allowed_target(ip):
+        return False
     try:
         with socket.create_connection((ip, DEFAULT_PORT), timeout=timeout):
             return True

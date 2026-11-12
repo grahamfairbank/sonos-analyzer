@@ -20,13 +20,13 @@ If you'd rather not run a compiled file from the internet, or your company doesn
 
 ## Download
 
-Pilot version 0.4.0 beta 1. Select the file for your computer to download it:
+Pilot version 0.4.0 beta 2. Select the file for your computer to download it:
 
 | Computer | Download |
 |---|---|
-| Windows 10 or 11 | [SonosAnalyzer-0.4.0-beta.1-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.1/SonosAnalyzer-0.4.0-beta.1-windows-x64.exe) (about 10 MB) |
-| Mac with Apple silicon (M1 or later) | [SonosAnalyzer-0.4.0-beta.1-macos-apple-silicon.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.1/SonosAnalyzer-0.4.0-beta.1-macos-apple-silicon.zip) |
-| Mac with an Intel processor | [SonosAnalyzer-0.4.0-beta.1-macos-intel.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.1/SonosAnalyzer-0.4.0-beta.1-macos-intel.zip) (about 9 MB) |
+| Windows 10 or 11 | [SonosAnalyzer-0.4.0-beta.2-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-windows-x64.exe) (about 10 MB) |
+| Mac with Apple silicon (M1 or later) | [SonosAnalyzer-0.4.0-beta.2-macos-apple-silicon.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-macos-apple-silicon.zip) |
+| Mac with an Intel processor | [SonosAnalyzer-0.4.0-beta.2-macos-intel.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-macos-intel.zip) (about 9 MB) |
 
 To check which Mac you have: Apple menu > **About This Mac**. "Chip: Apple M…" means Apple silicon; "Processor: Intel…" means Intel.
 
@@ -94,6 +94,13 @@ This runs exactly the same app as the download, from Python files you can read f
 ## How the ready-made app is built
 
 The download is this same Python code bundled with its own copy of Python by [PyInstaller](https://pyinstaller.org/). GitHub Actions builds it from the release's tagged source for Windows, Apple-silicon Macs and Intel Macs, checks that each build starts, and attaches the files to the release. The [build workflow](../.github/workflows/desktop-build.yml) and every [build log](https://github.com/grahamfairbank/sonos-analyzer/actions/workflows/desktop-build.yml) are public.
+
+Each release also includes `SHA256SUMS.txt`. To check a download matches what GitHub built, compare its checksum with the line for that file:
+
+- **Windows (PowerShell):** `Get-FileHash .\SonosAnalyzer-0.4.0-beta.2-windows-x64.exe`
+- **Mac (Terminal):** `shasum -a 256 SonosAnalyzer-0.4.0-beta.2-macos-apple-silicon.zip`
+
+The project has had an [independent security review](reviews/2026-11-12-fable-review.md); the findings are listed there with what was fixed.
 
 ## Pilot feedback
 

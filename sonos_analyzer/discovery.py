@@ -7,6 +7,8 @@ import select
 import socket
 import struct
 import time
+
+from sonos_analyzer.targets import is_allowed_target
 from dataclasses import dataclass
 
 
@@ -20,6 +22,9 @@ SEARCH_MESSAGE = (
     f"ST: {SEARCH_TARGET}\r\n"
     "\r\n"
 ).encode("ascii")
+
+# Stop collecting replies after this many speakers (a flood of fake replies cannot stall a scan).
+MAX_DISCOVERED = 64
 
 LOCATION_RE = re.compile(r"^LOCATION:\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
 
@@ -74,8 +79,8 @@ def off_network_hint(ips: list[str]) -> str:
     if not local or not foreign:
         return ""
     return (
-        f"The speakers are on {', '.join(f'{p}.x' for p in foreign)}, but this host has no address on that "
-        f"network (it has {', '.join(local)}). Check that its connection to the speakers' network is up."
+        f"The speakers are on {', '.join(f'{p}.x' for p in foreign)}, which may be a different network from "
+        f"this host ({', '.join(local)}). Check that this host can reach the speakers' network."
     )
 
 
@@ -131,10 +136,12 @@ def discover_speakers(timeout: float = 3.0, interface: str | None = None) -> lis
 
                 location = match.group(1).strip()
                 ip = _ip_from_location(location)
-                if not ip or ip in seen:
+                if not is_allowed_target(ip) or ip in seen:
                     continue
                 seen.add(ip)
                 speakers.append(DiscoveredSpeaker(ip=ip, location_url=location))
+                if len(speakers) >= MAX_DISCOVERED:
+                    end = 0  # stop listening
     finally:
         for sock in socks:
             sock.close()

@@ -14,6 +14,7 @@ FIRMWARE_STATUS = {
     "newest": "Newest in household",
     "behind": "Update available",
     "older_line": "Older release line",
+    "unknown": "Model unknown",
 }
 
 SEVERITY_LABEL = {
@@ -45,7 +46,7 @@ def print_terminal(report: AnalysisReport) -> None:
     print("Firmware")
     print("-" * 72)
     for group in report.firmware:
-        note = {"behind": " - update available", "older_line": " - older release line"}.get(group["status"], "")
+        note = {"behind": " - update available", "older_line": " - older release line", "unknown": " - model unknown"}.get(group["status"], "")
         print(f"  {group['version']:<14} {group['count']:>2} speaker(s): {', '.join(group['models'])}{note}")
     print()
 

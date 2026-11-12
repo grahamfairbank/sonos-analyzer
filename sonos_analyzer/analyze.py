@@ -275,11 +275,16 @@ def _model(sp: SpeakerDiagnostics) -> str:
     return sp.model_name or sp.model_number or sp.hardware_version or "Unknown model"
 
 
+def _model_key(sp: SpeakerDiagnostics) -> str | None:
+    """Model identity for firmware comparison; None when the device description could not be read."""
+    return sp.model_number or sp.model_name or None
+
+
 def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
     newest_by_model: dict[str, tuple[int, ...]] = {}
     for sp in speakers:
-        version = _version_tuple(sp.software_version)
-        newest_by_model[_model(sp)] = max(newest_by_model.get(_model(sp), ()), version)
+        if key := _model_key(sp):
+            newest_by_model[key] = max(newest_by_model.get(key, ()), _version_tuple(sp.software_version))
 
     groups: dict[str, list[SpeakerDiagnostics]] = {}
     for sp in speakers:
@@ -289,11 +294,14 @@ def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
     summary = []
     for version, members in sorted(groups.items(), key=lambda kv: _version_tuple(kv[0]), reverse=True):
         parsed = _version_tuple(version)
-        behind = [sp for sp in members if parsed < newest_by_model[_model(sp)]]
+        behind = [sp for sp in members if _model_key(sp) and parsed < newest_by_model[_model_key(sp)]]
         if parsed == newest:
             status = "newest"
         elif behind:
             status = "behind"
+        elif any(_model_key(sp) is None for sp in members):
+            # Without the model we cannot tell a missed update from an older release line.
+            status = "unknown"
         else:
             # Every speaker of these models runs this version: an older release line.
             status = "older_line"
@@ -359,7 +367,7 @@ def _firmware_findings(
                 title="Older models are on an older firmware line",
                 detail=(
                     f"The newest version here is {newest['version']}. Also in use: {lines}. Every speaker of those models runs the "
-                    "same version, so this looks like the latest release those models receive, not a missed update."
+                    "same version, which usually means Sonos has moved those models to a maintenance release line. If you expected an update, check System Updates in the Sonos app."
                 ),
                 affected=_affected(
                     [by_ip[s["ip"]] for g in older for s in g["speakers"]],
@@ -402,7 +410,11 @@ def _path(sp: SpeakerDiagnostics) -> str:
 def _radio_on(sp: SpeakerDiagnostics) -> bool:
     if _path(sp) != "wired":
         return True
-    return sp.connection_type_code != "4" and (sp.wifi_enabled is True or sp.phy_errors is not None)
+    if sp.connection_type_code == "4":
+        return False
+    if sp.wifi_enabled is not None:
+        return sp.wifi_enabled
+    return sp.phy_errors is not None
 
 
 def _active_freq(sp: SpeakerDiagnostics) -> str:

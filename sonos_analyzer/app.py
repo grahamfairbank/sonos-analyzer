@@ -23,9 +23,15 @@ def _bind(port: int | None) -> ThreadingHTTPServer:
     candidates = [port] if port else range(FIRST_PORT, FIRST_PORT + PORTS_TO_TRY)
     error: OSError | None = None
     for candidate in candidates:
+        server = ThreadingHTTPServer(("127.0.0.1", candidate), web.Handler, bind_and_activate=False)
+        # SO_REUSEADDR on Windows lets two programs share a listening port; we need a free one.
+        server.allow_reuse_address = sys.platform != "win32"
         try:
-            return ThreadingHTTPServer(("127.0.0.1", candidate), web.Handler)
+            server.server_bind()
+            server.server_activate()
+            return server
         except OSError as exc:
+            server.server_close()
             error = exc
     raise SystemExit(f"Could not open a local port for the web page: {error}")
 
