@@ -48,18 +48,19 @@
 <text x="845.0" y="261" text-anchor="middle" font-size="13" fill="#333">spanning-tree changes</text>
 <rect x="960" y="160" width="190" height="140" rx="10" fill="#e9f6ee" stroke="#2e8b57" stroke-width="2"/>
 <text x="1055.0" y="186" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">4. Analyze</text>
-<text x="1055.0" y="207" text-anchor="middle" font-size="13" fill="#333">firmware lines, rooms and</text>
-<text x="1055.0" y="225" text-anchor="middle" font-size="13" fill="#333">groups, Wi-Fi, noise and</text>
-<text x="1055.0" y="243" text-anchor="middle" font-size="13" fill="#333">signal, wired errors,</text>
-<text x="1055.0" y="261" text-anchor="middle" font-size="13" fill="#333">SonosNet bridge</text>
+<text x="1055.0" y="207" text-anchor="middle" font-size="13" fill="#333">firmware, rooms, groups,</text>
+<text x="1055.0" y="225" text-anchor="middle" font-size="13" fill="#333">Wi-Fi, noise, signal, wired</text>
+<text x="1055.0" y="243" text-anchor="middle" font-size="13" fill="#333">errors, SonosNet bridge,</text>
+<text x="1055.0" y="261" text-anchor="middle" font-size="13" fill="#333">subnets and double NAT</text>
 <path d="M520,230 L540,230" fill="none" stroke="#555" stroke-width="2" marker-end="url(#ah)"/>
 <path d="M730,230 L750,230" fill="none" stroke="#555" stroke-width="2" marker-end="url(#ah)"/>
 <path d="M940,230 L960,230" fill="none" stroke="#555" stroke-width="2" marker-end="url(#ah)"/>
 <rect x="330" y="390" width="400" height="110" rx="10" fill="#f3eefb" stroke="#7a4fc4" stroke-width="2"/>
-<text x="530.0" y="416" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Sonos speakers on your network</text>
-<text x="530.0" y="437" text-anchor="middle" font-size="13" fill="#333">port 1400: /support/review, zone topology,</text>
-<text x="530.0" y="455" text-anchor="middle" font-size="13" fill="#333">device description, radio status</text>
-<text x="530.0" y="473" text-anchor="middle" font-size="13" fill="#333">read-only, no Sonos account or cloud</text>
+<text x="530.0" y="416" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Speakers and router on your network</text>
+<text x="530.0" y="437" text-anchor="middle" font-size="13" fill="#333">speakers, port 1400: /support/review, zone</text>
+<text x="530.0" y="455" text-anchor="middle" font-size="13" fill="#333">topology, device description, radio status</text>
+<text x="530.0" y="473" text-anchor="middle" font-size="13" fill="#333">router, if UPnP is on: internet-side address</text>
+<text x="530.0" y="491" text-anchor="middle" font-size="13" fill="#333">read-only, no Sonos account or cloud</text>
 <path d="M425,300 L425,390" fill="none" stroke="#555" stroke-width="2" marker-end="url(#ah)" marker-start="url(#ah)"/>
 <text x="452" y="350" text-anchor="middle" font-size="12" fill="#555">search</text>
 <path d="M635,300 L635,390" fill="none" stroke="#555" stroke-width="2" marker-end="url(#ah)" marker-start="url(#ah)"/>
@@ -84,7 +85,7 @@
 <text x="1055" y="598" text-anchor="middle" font-size="12" fill="#555">in the browser, or from the command line</text>
 <rect x="330" y="615" width="830" height="115" rx="10" fill="#f4f4f2" stroke="#8a877f" stroke-width="2"/>
 <text x="745.0" y="641" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Safeguards</text>
-<text x="745.0" y="662" text-anchor="middle" font-size="13" fill="#333">Contacts only private IPv4 addresses on port 1400, never follows redirects, and caps response sizes.</text>
+<text x="745.0" y="662" text-anchor="middle" font-size="13" fill="#333">Only contacts private IPv4 addresses: speakers on port 1400 and the router by UPnP. No redirects; response sizes capped.</text>
 <text x="745.0" y="680" text-anchor="middle" font-size="13" fill="#333">The page refuses unknown host names (DNS rebinding) and cross-site requests; there is no login, so keep servers on a trusted network.</text>
 <text x="745.0" y="698" text-anchor="middle" font-size="13" fill="#333">The desktop app requires the key from the link it opened. Nothing on the speakers is changed (reading the PHY counter clears it).</text>
 <text x="40" y="620" font-size="13" font-weight="bold" fill="#555">KEY</text>

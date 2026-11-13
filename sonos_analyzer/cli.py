@@ -56,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Write HTML report to PATH",
     )
     parser.add_argument(
+        "--no-router-check",
+        action="store_true",
+        help="Don't ask the router (UPnP) for its internet-side address, or check this computer's network",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress terminal report (useful with --json/--html only)",
@@ -80,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-    snapshot = collect_snapshot(ips, phy_sample_seconds=args.phy_sample)
+    snapshot = collect_snapshot(ips, phy_sample_seconds=args.phy_sample, check_network=not args.no_router_check)
     if not snapshot.speakers:
         print("Could not read diagnostics from any speaker.", file=sys.stderr)
         if hint := off_network_hint(ips):

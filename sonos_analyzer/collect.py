@@ -14,6 +14,7 @@ from sonos_analyzer.fetch import (
     fetch_zone_group_state,
     is_reachable,
 )
+from sonos_analyzer import network
 from sonos_analyzer.targets import clean_text
 from sonos_analyzer.parse import (
     HouseholdSnapshot,
@@ -29,11 +30,13 @@ MAX_WORKERS = 12
 PHY_ERRORS_RE = re.compile(r"PHY errors since last reading/reset:\s*(\d+)")
 
 
-def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0) -> HouseholdSnapshot:
+def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0, check_network: bool = True) -> HouseholdSnapshot:
     """Read diagnostics starting from the given speaker IPs.
 
     phy_sample_seconds: window used to measure each radio's PHY error rate
     (0 skips the measurement).
+    check_network: also note which local address reaches each speaker and ask the
+    router (UPnP) for its internet-side address, to spot split networks and double NAT.
     """
     snapshot = HouseholdSnapshot(source_ips=ips)
     review_maps = []
@@ -77,9 +80,19 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0) -> Househo
         return snapshot
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        router = pool.submit(network.check_router) if check_network else None
         _add_device_descriptions(snapshot, pool)
         if phy_sample_seconds > 0:
             _sample_phy_error_rates(snapshot, pool, phy_sample_seconds)
+        if router is not None:
+            try:
+                snapshot.router = router.result()
+            except Exception as exc:  # noqa: BLE001 - the router check is optional
+                snapshot.fetch_errors.append(clean_text(f"router check: {exc}"))
+
+    # Inside Docker this computer's address says nothing about the user's phone.
+    if check_network and not network.in_container():
+        snapshot.analyzer_addresses = {ip: network.source_address(ip) for ip in snapshot.speakers}
 
     return snapshot
 

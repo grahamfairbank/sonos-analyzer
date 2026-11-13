@@ -68,6 +68,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `docker compose
 | `SONOS_ANALYZER_HOST` | `0.0.0.0` | Address the web UI binds to; set it to one of the host's addresses to serve the UI on that network only |
 | `SONOS_ANALYZER_ALLOWED_HOSTS` | none | Host names you open the page by, comma-separated (for example `nas.home.lan`). IP addresses, `localhost`, `.local` names and the machine's own name always work; other names are refused to block DNS-rebinding attacks. With Compose, put it in a `.env` file next to `docker-compose.yml`. Behind a reverse proxy (including one that serves the page over `https://`), add the name you browse to, and make sure the proxy passes that name on in the `Host` header. |
 | `SONOS_ANALYZER_SCAN_INTERVAL` | `15` | Minutes between background scans, which catch restarts, missing speakers and other changes between your own scans; `0` turns them off. When discovery finds nothing (Docker Desktop), background scans reuse the speakers from the last scan. |
+| `SONOS_ANALYZER_ROUTER_CHECK` | `1` | `0` stops the analyzer asking your router (by UPnP, on the local network) for its internet-side address, which is how it spots double NAT. |
 | `SONOS_ANALYZER_DATA` | `/data` in the image | Folder for scan history: one small JSON file per scan, kept 30 days. The `docker run` and Compose examples keep it in the `sonos-analyzer-data` volume so it survives updates; if you mount a folder instead, it must be writable by user `nobody` (UID 65534). Clear it from the page with **Clear history**. |
 
 ### Without Compose
@@ -144,7 +145,7 @@ Quiet mode (files only):
 sonos-analyzer --ips 192.168.1.165 --json report.json --html report.html --quiet
 ```
 
-On Linux, discovery is sent on every network interface and `--interface eth0` limits it to one. On Windows and macOS it uses the default network route, and `--interface` takes an IPv4 address. `--phy-sample 0` skips the Wi-Fi error-rate measurement for a faster scan.
+On Linux, discovery is sent on every network interface and `--interface eth0` limits it to one. On Windows and macOS it uses the default network route, and `--interface` takes an IPv4 address. `--phy-sample 0` skips the Wi-Fi error-rate measurement for a faster scan. `--no-router-check` skips the network checks that ask the router for its internet-side address and note which address this computer uses.
 
 ## Web UI without Docker
 
@@ -166,6 +167,8 @@ Then open `http://<host>:8400`. Leave the IP field empty to auto-discover, or en
 - Trueplay tuning state per room (portables, Port, Boost and Amp are left out)
 - Group coordinator: groups led by a speaker on a noisy or older radio when a wired or better-placed member could lead them
 - Older Wi-Fi radios: models Sonos documents without WPA3, so a router change keeps WPA2 available
+- Network layout: speakers on a different subnet from the rest, and this computer on a different subnet from the speakers (Sonos requires the app and all speakers on one subnet). Home theater surrounds' wider netmask on the soundbar link is not counted as a split
+- Double NAT: if your router answers UPnP, it is asked for its internet-side address; a private address means another router sits in front of it, and 100.64.x means your provider shares its public address (both informational). Routers with UPnP off don't answer, and then nothing is reported. A public address is never shown or stored
 - Monitoring (server): background scans every 15 minutes and 30 days of history, reporting missing speakers, unexpected restarts, firmware updates, IP, group coordinator and spanning-tree root changes, and network errors since the last scan
 - Plain-language readings: bars, words and colors for noise floor, signal and PHY errors, using the bands of Sonos's own network matrix where it has them
 - Related issues are reported as one finding listing every affected speaker, with actionable recommendations
@@ -187,7 +190,7 @@ sonos-analyzer --ips 192.168.1.165,192.168.1.89,192.168.1.193 \
 
 ## Security and reviews
 
-The analyzer only reads from speakers, and only contacts private IPv4 addresses on port 1400, never following redirects. The web UI has no login: on a server, keep it on a trusted LAN; the desktop app and the Docker Desktop setup only listen on the computer itself.
+The analyzer only reads from speakers, and only contacts private IPv4 addresses: speakers on port 1400, and the router, if it answers a UPnP search, to ask for its internet-side address (`--no-router-check` or `SONOS_ANALYZER_ROUTER_CHECK=0` turns that off). It never follows redirects. The web UI has no login: on a server, keep it on a trusted LAN; the desktop app and the Docker Desktop setup only listen on the computer itself.
 
 To report a security problem privately, see [SECURITY.md](SECURITY.md).
 

@@ -52,7 +52,7 @@ class ServerTests(unittest.TestCase):
         p = mock.patch.object(web.Handler, "log_message", lambda *a: None)
         p.start()
         self.addCleanup(p.stop)
-        p = mock.patch.object(web, "collect_snapshot", side_effect=lambda ips: snapshot())
+        p = mock.patch.object(web, "collect_snapshot", side_effect=lambda ips, **kw: snapshot())
         self.collect = p.start()
         self.addCleanup(p.stop)
         p = mock.patch.object(web, "discover_speakers", return_value=[])

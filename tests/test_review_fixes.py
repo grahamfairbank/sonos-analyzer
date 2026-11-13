@@ -48,7 +48,7 @@ class R1DamagedHistory(unittest.TestCase):
         broken = mock.Mock()
         broken.load.side_effect = TypeError("bad record")
         with mock.patch.object(web, "HISTORY", broken), \
-                mock.patch.object(web, "collect_snapshot", side_effect=lambda ips: snapshot()):
+                mock.patch.object(web, "collect_snapshot", side_effect=lambda ips, **kw: snapshot()):
             r = web.run_scan(["192.168.50.10"], 3.0)
         self.assertTrue(any("Scan history could not be read" in e for e in r.snapshot.fetch_errors))
 

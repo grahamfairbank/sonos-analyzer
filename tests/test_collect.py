@@ -4,6 +4,7 @@ import unittest
 from unittest import mock
 
 from sonos_analyzer import collect
+from sonos_analyzer.parse import RouterCheck
 from tests import household as hh
 
 
@@ -33,6 +34,14 @@ class CollectTests(unittest.TestCase):
             p = mock.patch.object(collect, name, side_effect=fn)
             p.start()
             self.addCleanup(p.stop)
+        # No real UPnP search or routing lookups in tests.
+        for name, value in {"check_router": RouterCheck(searched=True), "in_container": False}.items():
+            p = mock.patch.object(collect.network, name, return_value=value)
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(collect.network, "source_address", return_value="192.168.50.200")
+        p.start()
+        self.addCleanup(p.stop)
 
     def test_one_review_covers_household(self):
         snap = collect.collect_snapshot(["192.168.50.10", "192.168.50.12"], phy_sample_seconds=0)
@@ -91,6 +100,21 @@ class CollectTests(unittest.TestCase):
         snap = collect.collect_snapshot(["192.168.50.10", "192.168.50.12"], phy_sample_seconds=0)
         self.assertIn("192.168.50.10: timed out", snap.fetch_errors)
         self.assertEqual(len(snap.speakers), 11)
+
+    def test_network_checks_recorded(self):
+        snap = collect.collect_snapshot(["192.168.50.10"], phy_sample_seconds=0)
+        self.assertTrue(snap.router.searched)
+        self.assertEqual(set(snap.analyzer_addresses), set(snap.speakers))
+
+    def test_no_analyzer_address_in_container(self):
+        with mock.patch.object(collect.network, "in_container", return_value=True):
+            snap = collect.collect_snapshot(["192.168.50.10"], phy_sample_seconds=0)
+        self.assertEqual(snap.analyzer_addresses, {})
+
+    def test_network_checks_can_be_skipped(self):
+        snap = collect.collect_snapshot(["192.168.50.10"], phy_sample_seconds=0, check_network=False)
+        self.assertIsNone(snap.router)
+        collect.network.check_router.assert_not_called()
 
 
 if __name__ == "__main__":

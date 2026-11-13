@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import statistics
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from sonos_analyzer.parse import HouseholdSnapshot, SpeakerDiagnostics
+from sonos_analyzer.targets import is_allowed_target
 
 
 # PHY error rate: flag radios well above the household's typical level.
@@ -84,6 +86,7 @@ def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> Analysi
     findings += _calibration_findings(rooms)
     findings += _coordinator_findings(speakers, outlier_ips)
     findings += _radio_generation_findings(speakers)
+    findings += _network_findings(snapshot, speakers)
     if changes:
         findings += _history_findings(changes)
 
@@ -1269,6 +1272,144 @@ def _radio_generation_findings(speakers: list[SpeakerDiagnostics]) -> list[Findi
                 affected=_affected(resets, lambda sp: f"{sp.hal_reset_failures} failure(s)"),
             )
         )
+    return findings
+
+
+# --- Network layout: subnets and double NAT --------------------------------
+
+SAME_SUBNET_SOURCE = "Sonos system requirements: support.sonos.com/en-us/article/sonos-system-requirements"
+
+
+def _subnet(ip: str, mask: str) -> ipaddress.IPv4Network | None:
+    try:
+        return ipaddress.ip_network(f"{ip}/{mask}", strict=False)
+    except ValueError:
+        return None
+
+
+def _network_findings(snapshot: HouseholdSnapshot, speakers: list[SpeakerDiagnostics]) -> list[Finding]:
+    findings: list[Finding] = []
+    # The household's network is the one most visible speakers report. Compare addresses, not masks:
+    # home theater surrounds on a direct link to their soundbar report a wider mask (255.0.0.0).
+    counts: dict[ipaddress.IPv4Network, int] = {}
+    for sp in speakers:
+        net = _subnet(sp.ip_address, sp.netmask) if sp.netmask and not sp.is_invisible else None
+        if net is not None:
+            counts[net] = counts.get(net, 0) + 1
+    if not counts:
+        return findings
+    main = max(counts, key=lambda net: (counts[net], net.prefixlen))
+
+    def outside_main(ip: str) -> bool:
+        try:
+            return ipaddress.ip_address(ip) not in main
+        except ValueError:
+            return False
+
+    others = [sp for sp in speakers if outside_main(sp.ip_address)]
+    if others:
+        findings.append(
+            Finding(
+                severity="medium",
+                category="network",
+                title=f"{len(others)} speaker(s) are on a different network from the rest",
+                detail=(
+                    f"Most speakers are on {main}, but these are not. "
+                    "Sonos requires the Sonos app and all Sonos products to be on the same subnet. A second router "
+                    "is the usual cause: an internet provider's router plus your own, or a mesh system set to router "
+                    f"mode instead of bridge (access point) mode. {SAME_SUBNET_SOURCE}"
+                ),
+                affected=_affected(others, lambda sp: sp.ip_address),
+                recommendation=(
+                    "Put every speaker on one network: set the second router or mesh system to bridge "
+                    "(access point) mode, then restart the speakers that were on the other network."
+                ),
+            )
+        )
+
+    local_ips = sorted(
+        {
+            local
+            for sp in speakers
+            if (local := snapshot.analyzer_addresses.get(sp.ip_address, "")) and is_allowed_target(local)
+        }
+    )
+    if local_ips and not any(not outside_main(local) for local in local_ips):
+        findings.append(
+            Finding(
+                severity="low",
+                category="network",
+                title="This computer is on a different network from the speakers",
+                detail=(
+                    f"This computer reached the speakers from {', '.join(local_ips)}, which is outside the speakers' "
+                    f"network ({main}). The scan worked because a router passed the traffic, but the Sonos "
+                    "app on a phone or computer on this network won't find the speakers. If your phone is on the "
+                    f"speakers' network, this doesn't matter. {SAME_SUBNET_SOURCE}"
+                ),
+                recommendation=f"Run the Sonos app from a phone or computer on the speakers' network ({main}).",
+            )
+        )
+
+    router = snapshot.router
+    if router and router.searched and router.gateways:
+        answered = [g for g in router.gateways if g.wan != "unknown"]
+        double = [g for g in answered if g.wan == "private"]
+        shared = [g for g in answered if g.wan == "cgnat"]
+        public = [g for g in answered if g.wan == "public"]
+        def where(g):
+            return f"{g.model} ({g.ip})" if g.model else g.ip
+        if double:
+            findings.append(
+                Finding(
+                    severity="info",
+                    category="network",
+                    title="Double NAT: your router sits behind another router",
+                    detail=(
+                        "Your router reports an internet-side address on a private network ("
+                        + "; ".join(f"{where(g)}: {g.wan_ip}" for g in double)
+                        + "), so another router is in front of it. Sonos works through double NAT as long as the "
+                        "speakers and the phone or computer running the Sonos app are on the same network; problems "
+                        "start when some devices connect to the front router instead. Read with UPnP from the router."
+                    ),
+                    affected=[{"name": g.model or "Router", "ip": g.ip, "note": f"internet side {g.wan_ip}"} for g in double],
+                )
+            )
+        if shared:
+            findings.append(
+                Finding(
+                    severity="info",
+                    category="network",
+                    title="Your internet provider shares its public address (carrier-grade NAT)",
+                    detail=(
+                        "Your router's internet-side address is in 100.64.0.0/10, the range providers use to share "
+                        "one public address between customers. This doesn't affect Sonos inside your home."
+                    ),
+                    affected=[{"name": g.model or "Router", "ip": g.ip, "note": f"internet side {g.wan_ip}"} for g in shared],
+                )
+            )
+        if len(answered) > 1:
+            findings.append(
+                Finding(
+                    severity="info",
+                    category="network",
+                    title=f"{len(answered)} routers answered on your network",
+                    detail=(
+                        "More than one device offered to route internet traffic. If one of them is a mesh system or a "
+                        "second router, check it is in bridge (access point) mode so all devices share one network."
+                    ),
+                    affected=[{"name": g.model or "Router", "ip": g.ip, "note": ""} for g in answered],
+                )
+            )
+        if public and not double and not shared and len(answered) == 1:
+            findings.append(
+                Finding(
+                    severity="ok",
+                    category="network",
+                    title="No double NAT",
+                    detail="Your router reports a public internet address, so no second router sits in front of it.",
+                    affected=[{"name": g.model or "Router", "ip": g.ip, "note": ""} for g in public],
+                )
+            )
     return findings
 
 

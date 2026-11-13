@@ -51,7 +51,11 @@ def _get(url: str) -> str:
 
 
 def _soap(ip: str, service_path: str, action: str, body: str) -> str:
-    url = f"http://{ip}:{DEFAULT_PORT}{service_path}"
+    return soap_request(f"http://{ip}:{DEFAULT_PORT}{service_path}", action, body)
+
+
+def soap_request(url: str, action: str, body: str) -> str:
+    """POST a UPnP SOAP action to a private address."""
     envelope = (
         '<?xml version="1.0"?>'
         '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '

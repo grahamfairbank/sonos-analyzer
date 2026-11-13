@@ -69,7 +69,7 @@ steps = [
     ("1. Find speakers", ["SSDP search on every", "network interface, a typed", "IP, or the last known", "speakers"]),
     ("2. Read diagnostics", ["up to 12 speakers at once:", "support review, groups,", "model, radio status;", "PHY errors over 5 s"]),
     ("3. Compare", ["with earlier scans: missing", "speakers, restarts, IP,", "firmware, coordinator and", "spanning-tree changes"]),
-    ("4. Analyze", ["firmware lines, rooms and", "groups, Wi-Fi, noise and", "signal, wired errors,", "SonosNet bridge"]),
+    ("4. Analyze", ["firmware, rooms, groups,", "Wi-Fi, noise, signal, wired", "errors, SonosNet bridge,", "subnets and double NAT"]),
 ]
 sx = 330
 for title, lines in steps:
@@ -79,9 +79,9 @@ for x in (520, 730, 940):
     arrow([(x, 230), (x + 20, 230)])
 
 # Speakers
-box(330, 390, 400, 110, "ext", "Sonos speakers on your network",
-    ["port 1400: /support/review, zone topology,", "device description, radio status",
-     "read-only, no Sonos account or cloud"])
+box(330, 390, 400, 110, "ext", "Speakers and router on your network",
+    ["speakers, port 1400: /support/review, zone", "topology, device description, radio status",
+     "router, if UPnP is on: internet-side address", "read-only, no Sonos account or cloud"])
 arrow([(425, 300), (425, 390)], "search", (452, 350), both=True)
 arrow([(635, 300), (635, 390)], "HTTP / SOAP", (680, 350), both=True)
 
@@ -97,7 +97,7 @@ add('<text x="1055" y="598" text-anchor="middle" font-size="12" fill="#555">in t
 
 # Guards
 box(330, 615, 830, 115, "guard", "Safeguards",
-    ["Contacts only private IPv4 addresses on port 1400, never follows redirects, and caps response sizes.",
+    ["Only contacts private IPv4 addresses: speakers on port 1400 and the router by UPnP. No redirects; response sizes capped.",
      "The page refuses unknown host names (DNS rebinding) and cross-site requests; there is no login, so keep servers on a trusted network.",
      "The desktop app requires the key from the link it opened. Nothing on the speakers is changed (reading the PHY counter clears it)."],
     size=13)

@@ -29,6 +29,8 @@ MAX_IPS = 64
 MAX_DISCOVER_TIMEOUT = 15.0
 
 DISCOVERY_INTERFACE = os.environ.get("SONOS_ANALYZER_INTERFACE") or None
+# Ask the router (UPnP) for its internet-side address to spot double NAT; "0" turns it off.
+ROUTER_CHECK = os.environ.get("SONOS_ANALYZER_ROUTER_CHECK", "1").strip() != "0"
 # Host names the page may be opened by, besides IP addresses, localhost, *.local and this
 # machine's own name. Anything else is refused, which stops DNS-rebinding attacks.
 EXTRA_ALLOWED_HOSTS = {
@@ -140,7 +142,7 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
                     "Docker Desktop, or when this computer is on a different network from the speakers.",
                 )
 
-        snapshot = collect_snapshot(ips)
+        snapshot = collect_snapshot(ips, check_network=ROUTER_CHECK)
         scanned_at = datetime.now(timezone.utc)
         if not snapshot.speakers:
             hint = off_network_hint(ips)

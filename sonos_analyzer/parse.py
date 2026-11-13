@@ -84,6 +84,7 @@ class SpeakerDiagnostics:
     phy_window_errors: int | None = None  # errors counted in that window
     phy_window_seconds: float | None = None  # window length, from reset read to second read
     phy_not_measured: str = ""  # why there is no rate, when the speaker has a radio counter
+    netmask: str = ""  # br0 netmask from ifconfig, e.g. 255.255.255.0
 
 
 @dataclass
@@ -96,11 +97,30 @@ class PhySample:
 
 
 @dataclass
+class Gateway:
+    ip: str
+    model: str = ""
+    # public, private (double NAT), cgnat (provider-shared address), none (not connected) or unknown
+    wan: str = "unknown"
+    wan_ip: str = ""  # kept only when it is not a public address
+    error: str = ""
+
+
+@dataclass
+class RouterCheck:
+    searched: bool = False
+    gateways: list[Gateway] = field(default_factory=list)
+
+
+@dataclass
 class HouseholdSnapshot:
     speakers: dict[str, SpeakerDiagnostics] = field(default_factory=dict)
     source_ips: list[str] = field(default_factory=list)
     fetch_errors: list[str] = field(default_factory=list)
     phy_sample: PhySample | None = None
+    # speaker IP -> the local address this computer used to reach it (empty when not checked)
+    analyzer_addresses: dict[str, str] = field(default_factory=dict)
+    router: RouterCheck | None = None
 
 
 def parse_review_xml(xml_text: str) -> dict[str, SpeakerDiagnostics]:
@@ -324,6 +344,10 @@ def _parse_ifconfig(text: str, speaker: SpeakerDiagnostics) -> None:
             current = speaker.eth0
         elif current is None:
             continue
+        elif current is speaker.br0 and "inet addr:" in line:
+            m = re.search(r"Mask:(\d{1,3}(?:\.\d{1,3}){3})", line)
+            if m:
+                speaker.netmask = m.group(1)
         elif "RX packets:" in line:
             m = re.search(
                 r"RX packets:(\d+) errors:(\d+) dropped:(\d+)",
