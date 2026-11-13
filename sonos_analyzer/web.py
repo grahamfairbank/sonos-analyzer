@@ -164,9 +164,14 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def _refuse_cross_origin(self) -> bool:
-        """For state-changing requests, any Origin must be this page's own; True when refused."""
+        """For state-changing requests, any Origin must be this page's own; True when refused.
+
+        Both http:// and https:// count as the page's own origin for the same Host, so the UI
+        also works behind a reverse proxy that terminates TLS (e.g. https://sonos.home.lan).
+        """
         origin = self.headers.get("Origin")
-        if origin is None or origin.lower() == f"http://{(self.headers.get('Host') or '').lower()}":
+        host = (self.headers.get("Host") or "").lower()
+        if origin is None or origin.lower() in (f"http://{host}", f"https://{host}"):
             return False
         self._send_json(HTTPStatus.FORBIDDEN, {"error": "Cross-origin requests are not allowed"})
         return True
