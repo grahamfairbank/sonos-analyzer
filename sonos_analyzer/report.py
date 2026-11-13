@@ -11,10 +11,9 @@ from sonos_analyzer.analyze import AnalysisReport, Finding
 
 
 FIRMWARE_STATUS = {
-    "newest": "Newest in household",
-    "behind": "Update available",
-    "older_line": "Older release line",
-    "unknown": "Model unknown",
+    "newest": "Current: main line",
+    "maintenance": "Current: maintenance line",
+    "behind": "Missed an update",
 }
 
 SEVERITY_LABEL = {
@@ -46,7 +45,7 @@ def print_terminal(report: AnalysisReport) -> None:
     print("Firmware")
     print("-" * 72)
     for group in report.firmware:
-        note = {"behind": " - update available", "older_line": " - older release line", "unknown": " - model unknown"}.get(group["status"], "")
+        note = {"newest": " - main line", "maintenance": " - maintenance line", "behind": " - missed an update"}.get(group["status"], "")
         print(f"  {group['version']:<14} {group['count']:>2} speaker(s): {', '.join(group['models'])}{note}")
     print()
 

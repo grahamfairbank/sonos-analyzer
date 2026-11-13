@@ -4,6 +4,20 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ## [Unreleased]
 
+### Added
+
+- Automated tests for parsing, analysis, speaker requests and the web server's protections, using a made-up household in the speakers' real response formats; they run on every push and pull request on Linux, Windows and macOS ([#2](https://github.com/grahamfairbank/sonos-analyzer/issues/2)).
+
+### Changed
+
+- Firmware analysis recognizes the household's main line and the maintenance line Sonos keeps older models on. Speakers on either are reported as current; anything else is flagged as having missed an update, with the version it should be on ([#13](https://github.com/grahamfairbank/sonos-analyzer/issues/13)).
+- The "turn off Wi-Fi" advice for wired speakers is no longer given for models that can't turn Wi-Fi off: Era 100, Era 300, Move, Move 2, the Roam family and Sub Mini ([#11](https://github.com/grahamfairbank/sonos-analyzer/issues/11)).
+- Trueplay findings leave out portables (Move, Roam), which tune themselves, and Port, Boost and Amp; the speakers table shows "Not applicable" for them ([#12](https://github.com/grahamfairbank/sonos-analyzer/issues/12)).
+
+### Security
+
+- Only RFC 1918 private ranges and 100.64.0.0/10 are contacted. Python's private-address test also accepted documentation and reserved ranges.
+
 ### Fixed
 
 - Scans were refused with "Cross-origin requests are not allowed" when the web UI is served over HTTPS by a reverse proxy (TLS offload). An `https://` origin for the same host name is now accepted as well as `http://`. Thanks to @wimmme ([#1](https://github.com/grahamfairbank/sonos-analyzer/pull/1)).

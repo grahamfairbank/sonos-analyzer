@@ -5,8 +5,12 @@ from __future__ import annotations
 import ipaddress
 import re
 
-# Carrier-grade NAT space, used by some home and mesh networks (and Tailscale).
-_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+# RFC 1918 private ranges, plus carrier-grade NAT space used by some home and mesh
+# networks (and Tailscale). Listed explicitly: Python's is_private also covers
+# documentation and reserved ranges that no speaker uses.
+_ALLOWED_NETWORKS = [
+    ipaddress.ip_network(net) for net in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10")
+]
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
@@ -16,9 +20,7 @@ def is_allowed_target(host: str | None) -> bool:
         address = ipaddress.ip_address((host or "").strip())
     except ValueError:
         return False
-    return address.version == 4 and (address.is_private or address in _SHARED_ADDRESS_SPACE) and not (
-        address.is_unspecified or address.is_loopback or address.is_multicast or address.is_link_local
-    )
+    return address.version == 4 and any(address in net for net in _ALLOWED_NETWORKS)
 
 
 def clean_text(value: str) -> str:

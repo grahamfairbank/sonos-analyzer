@@ -18,6 +18,13 @@ RX_DROP_RATIO_PCT = 20
 INTERFACE_ERROR_RATIO_PCT = 0.01
 
 ROLE_ORDER = ["Front", "Left", "Right", "Left surround", "Right surround", "Sub"]
+# Models that can't turn their Wi-Fi off: no built-in Ethernet port (USB-C adapter or none).
+NO_WIFI_OFF_MODELS = re.compile(r"\b(era 100|era 300|move|roam|sub mini)\b", re.IGNORECASE)
+# Portables tune themselves as they move, so manual Trueplay doesn't apply.
+PORTABLE_MODELS = re.compile(r"\b(move|roam)\b", re.IGNORECASE)
+# No Trueplay to check: Port and Boost have no speakers, and an Amp supports it only with
+# Sonos Architectural speakers, which the speaker data doesn't show.
+NO_TRUEPLAY_MODELS = re.compile(r"\b(port|boost|amp)\b", re.IGNORECASE)
 # 5 GHz 80 MHz blocks, by first channel
 BLOCKS_5GHZ = [(36, 48), (52, 64), (100, 112), (116, 128), (132, 144), (149, 161)]
 
@@ -280,7 +287,53 @@ def _model_key(sp: SpeakerDiagnostics) -> str | None:
     return sp.model_number or sp.model_name or None
 
 
+def _line(version: str) -> str:
+    """Release line: the major version, e.g. '86' for '86.11-82170'."""
+    return version.split(".", 1)[0].split("-", 1)[0] if version else ""
+
+
+def _build(version: str) -> str:
+    """Build number after the dash, e.g. '82170'; shared by every line of one Sonos release."""
+    return version.rsplit("-", 1)[1] if "-" in version else ""
+
+
+def _firmware_lines(speakers: list[SpeakerDiagnostics]) -> dict:
+    """Work out the household's main and maintenance firmware versions.
+
+    A healthy household runs one or two versions: the main line for current models and,
+    often, a maintenance line that Sonos keeps older models on. Anything else is an outlier.
+    """
+    versions = {sp.software_version for sp in speakers if sp.software_version}
+    if not versions:
+        return {"main": "", "maintenance": "", "same_release": False}
+    main = max(versions, key=_version_tuple)
+    newest_by_line: dict[str, str] = {}
+    for v in versions:
+        line = _line(v)
+        if line not in newest_by_line or _version_tuple(v) > _version_tuple(newest_by_line[line]):
+            newest_by_line[line] = v
+    others = [v for line, v in newest_by_line.items() if line != _line(main)]
+
+    def display(v: str) -> str:
+        return next((sp.display_version for sp in speakers if sp.software_version == v and sp.display_version), "")
+
+    def same_release(v: str) -> bool:
+        return bool(_build(v)) and _build(v) == _build(main) or bool(display(v)) and display(v) == display(main)
+
+    def weight(v: str) -> tuple:
+        # Prefer a line that shares the main release, then the one most speakers use.
+        return (same_release(v), sum(1 for sp in speakers if sp.software_version == v), _version_tuple(v))
+
+    maintenance = max(others, key=weight) if others else ""
+    return {"main": main, "maintenance": maintenance, "same_release": bool(maintenance) and same_release(maintenance)}
+
+
+def _and_list(items: list[str]) -> str:
+    return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
+    lines = _firmware_lines(speakers)
     newest_by_model: dict[str, tuple[int, ...]] = {}
     for sp in speakers:
         if key := _model_key(sp):
@@ -290,21 +343,18 @@ def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
     for sp in speakers:
         groups.setdefault(sp.software_version or "unknown", []).append(sp)
 
-    newest = max((_version_tuple(v) for v in groups), default=())
     summary = []
     for version, members in sorted(groups.items(), key=lambda kv: _version_tuple(kv[0]), reverse=True):
-        parsed = _version_tuple(version)
-        behind = [sp for sp in members if _model_key(sp) and parsed < newest_by_model[_model_key(sp)]]
-        if parsed == newest:
+        # The same model on a newer version elsewhere means this one missed an update.
+        model_behind = [
+            sp for sp in members if _model_key(sp) and _version_tuple(version) < newest_by_model[_model_key(sp)]
+        ]
+        if version == lines["main"] and not model_behind:
             status = "newest"
-        elif behind:
-            status = "behind"
-        elif any(_model_key(sp) is None for sp in members):
-            # Without the model we cannot tell a missed update from an older release line.
-            status = "unknown"
+        elif version == lines["maintenance"] and not model_behind:
+            status = "maintenance"
         else:
-            # Every speaker of these models runs this version: an older release line.
-            status = "older_line"
+            status = "behind"
         summary.append(
             {
                 "version": version,
@@ -313,7 +363,7 @@ def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
                 "count": len(members),
                 "models": sorted({_model(sp) for sp in members}),
                 "speakers": [{"name": _label(sp), "ip": sp.ip_address, "model": _model(sp)} for sp in members],
-                "behind_ips": [sp.ip_address for sp in behind],
+                "behind_ips": [sp.ip_address for sp in members] if status == "behind" else [],
             }
         )
     return summary
@@ -324,6 +374,7 @@ def _firmware_findings(
 ) -> list[Finding]:
     findings: list[Finding] = []
     summary = _firmware_summary(speakers)
+    lines = _firmware_lines(speakers)
     by_ip = {sp.ip_address: sp for sp in speakers}
 
     for members in rooms.values():
@@ -341,36 +392,58 @@ def _firmware_findings(
                 )
             )
 
-    behind = [by_ip[ip] for group in summary for ip in group["behind_ips"]]
-    if behind:
+    def expected(sp: SpeakerDiagnostics) -> str:
+        if lines["maintenance"] and _line(sp.software_version) == _line(lines["maintenance"]):
+            return lines["maintenance"]
+        return lines["main"]
+
+    outliers = [by_ip[ip] for group in summary for ip in group["behind_ips"]]
+    if outliers:
+        current = f"{lines['main']} (main line)"
+        if lines["maintenance"]:
+            current += f" or {lines['maintenance']} (maintenance line)"
         findings.append(
             Finding(
                 severity="medium",
                 category="firmware",
-                title=f"{len(behind)} speaker(s) behind on firmware",
-                detail="Other speakers of the same model in this household already run a newer version.",
-                affected=_affected(behind, lambda sp: f"{_model(sp)} on {sp.software_version}"),
-                recommendation="Run Settings > System > System Updates in the Sonos app for the speakers that are behind.",
+                title=f"{len(outliers)} speaker(s) missed a firmware update",
+                detail=(
+                    f"The rest of the household is on {current}. These speakers are on an earlier version, "
+                    "so they most likely missed an update."
+                ),
+                affected=_affected(
+                    outliers, lambda sp: f"{_model(sp)} on {sp.software_version}, expected {expected(sp)}"
+                ),
+                recommendation=(
+                    "Run Settings > System > System Updates in the Sonos app. If a speaker stays behind, "
+                    "unplug it for 10 seconds and check again."
+                ),
             )
         )
 
-    older = [g for g in summary if g["status"] == "older_line"]
-    if older:
-        newest = summary[0]
-        lines = "; ".join(
-            f"{g['version']} on {', '.join(g['models'])} ({g['count']} speaker(s))" for g in older
+    maintenance = next((g for g in summary if g["status"] == "maintenance"), None)
+    if maintenance:
+        main = next(g for g in summary if g["version"] == lines["main"])
+        detail = (
+            f"{_and_list(maintenance['models'])} speakers run {maintenance['version']}, while newer models run "
+            f"{main['version']}. Sonos keeps products in a later stage of their support life on their own "
+            "maintenance line, which carries fixes and compatibility updates while new features arrive on "
+            "the main line first."
         )
+        if lines["same_release"]:
+            parts = [p for p in (main["display_version"], f"build {_build(main['version'])}" if _build(main["version"]) else "") if p]
+            detail += (
+                " Both are the same Sonos release" + (f" ({', '.join(parts)})" if parts else "")
+                + ", so these speakers are fully up to date."
+            )
         findings.append(
             Finding(
-                severity="info",
+                severity="ok" if lines["same_release"] else "info",
                 category="firmware",
-                title="Older models are on an older firmware line",
-                detail=(
-                    f"The newest version here is {newest['version']}. Also in use: {lines}. Every speaker of those models runs the "
-                    "same version, which usually means Sonos has moved those models to a maintenance release line. If you expected an update, check System Updates in the Sonos app."
-                ),
+                title=f"{maintenance['count']} older speaker(s) are current on Sonos's maintenance line",
+                detail=detail,
                 affected=_affected(
-                    [by_ip[s["ip"]] for g in older for s in g["speakers"]],
+                    [by_ip[s["ip"]] for s in maintenance["speakers"]],
                     lambda sp: f"{_model(sp)} on {sp.software_version}",
                 ),
             )
@@ -415,6 +488,11 @@ def _radio_on(sp: SpeakerDiagnostics) -> bool:
     if sp.wifi_enabled is not None:
         return sp.wifi_enabled
     return sp.phy_errors is not None
+
+
+def _can_disable_wifi(sp: SpeakerDiagnostics) -> bool:
+    """False for models whose radio stays on by design; unknown models are assumed able."""
+    return not NO_WIFI_OFF_MODELS.search(sp.model_name or "")
 
 
 def _active_freq(sp: SpeakerDiagnostics) -> str:
@@ -751,7 +829,7 @@ def _wired_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
     wired = [sp for sp in speakers if _path(sp) == "wired"]
     sonosnet_in_use = any(_path(sp) == "sonosnet" for sp in speakers)
 
-    idle_radio = [sp for sp in wired if _radio_use(sp) == "idle"]
+    idle_radio = [sp for sp in wired if _radio_use(sp) == "idle" and _can_disable_wifi(sp)]
     if idle_radio and not sonosnet_in_use:
         findings.append(
             Finding(
@@ -853,9 +931,19 @@ def _wired_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
 TRUEPLAY = {"1": "tuned", "4": "not tuned"}
 
 
+def _is_portable(sp: SpeakerDiagnostics) -> bool:
+    return bool(PORTABLE_MODELS.search(sp.model_name or ""))
+
+
+def _trueplay(sp: SpeakerDiagnostics) -> str | None:
+    if _is_portable(sp) or NO_TRUEPLAY_MODELS.search(sp.model_name or ""):
+        return "not applicable"
+    return TRUEPLAY.get(sp.room_calibration_state)
+
+
 def _calibration_findings(rooms: dict[str, list[SpeakerDiagnostics]]) -> list[Finding]:
     primaries = [members[0] for members in rooms.values()]
-    untuned = [sp for sp in primaries if TRUEPLAY.get(sp.room_calibration_state) == "not tuned"]
+    untuned = [sp for sp in primaries if _trueplay(sp) == "not tuned"]
     if not untuned:
         return []
     return [
@@ -865,7 +953,8 @@ def _calibration_findings(rooms: dict[str, list[SpeakerDiagnostics]]) -> list[Fi
             title=f"Trueplay tuning not applied in {len(untuned)} room(s)",
             detail=(
                 "Optional. Trueplay adjusts a speaker to the room's acoustics; "
-                "not every model or placement supports it."
+                "not every model or placement supports it. Portable speakers (Move, Roam) "
+                "tune themselves, and Port, Boost and Amp are not counted."
             ),
             affected=_affected(untuned, lambda sp: sp.model_name),
         )
@@ -931,7 +1020,7 @@ def _speaker_to_dict(sp: SpeakerDiagnostics) -> dict:
         "wifi_channel_mhz": freq,
         "wifi_mode": sp.wifi_mode,
         "noise_floor_dbm": _noise_floor(sp),
-        "trueplay": TRUEPLAY.get(sp.room_calibration_state),
+        "trueplay": _trueplay(sp),
         "room_calibration_state": sp.room_calibration_state,
         "boot_seq": sp.boot_seq,
         "airplay_enabled": sp.airplay_enabled,

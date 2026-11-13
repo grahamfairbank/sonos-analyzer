@@ -185,6 +185,14 @@ Independent reviews and what was done about each finding:
 
 - [2026-11-12: Fable review of v0.4.0-beta.1](docs/reviews/2026-11-12-fable-review.md), fixed in v0.4.0-beta.2
 
+## Running the tests
+
+The tests use only the Python standard library and a made-up household, so they need no speakers or network:
+
+```bash
+python3 -m unittest discover -s tests -t .
+```
+
 ## Changes from the original
 
 See [CHANGELOG.md](CHANGELOG.md) for each release. Based on [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer) 0.1.0. This fork adds:

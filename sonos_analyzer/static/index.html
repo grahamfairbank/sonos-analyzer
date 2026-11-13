@@ -254,7 +254,7 @@
 <script>
   const $ = (id) => document.getElementById(id);
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
-  const FIRMWARE_STATUS = { newest: "Newest in household", behind: "Update available", older_line: "Older release line", unknown: "Model unknown" };
+  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: maintenance line", behind: "Missed an update" };
   const fmt = (n) => Math.round(n).toLocaleString();
 
   // Speaker names and findings come from the network, so everything is set via textContent.
@@ -465,7 +465,7 @@
         el("td", {}, [sp.connection_summary, el("span", { className: "sub", textContent: wired })]),
         el("td", {}, [sp.display_version || sp.software_version || "—",
           el("span", { className: "sub", textContent: sp.display_version ? sp.software_version : "" })]),
-        el("td", { className: sp.trueplay ? "" : "muted", textContent: sp.trueplay === "tuned" ? "Tuned" : sp.trueplay === "not tuned" ? "Not tuned" : "—" }),
+        el("td", { className: sp.trueplay && sp.trueplay !== "not applicable" ? "" : "muted", textContent: sp.trueplay === "tuned" ? "Tuned" : sp.trueplay === "not tuned" ? "Not tuned" : sp.trueplay === "not applicable" ? "Not applicable" : "—" }),
         el("td", { className: "num" + (noisy.has(sp.ip_address) && rate != null ? " medium" : ""),
           textContent: rate == null ? "—" : fmt(rate) }),
         el("td", { className: "num", textContent: sp.noise_floor_dbm == null ? "—" : `${sp.noise_floor_dbm} dBm` }),
