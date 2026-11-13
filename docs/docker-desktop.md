@@ -119,7 +119,7 @@ docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revis
 From version 0.4.0 the image also has a signed build record (a GitHub "attestation") linking it to the workflow run and commit that built it. With the [GitHub CLI](https://cli.github.com/) installed:
 
 ```bash
-gh attestation verify oci://ghcr.io/grahamfairbank/sonos-analyzer:0.4.0 --repo grahamfairbank/sonos-analyzer
+gh attestation verify oci://ghcr.io/grahamfairbank/sonos-analyzer:0.5.0 --repo grahamfairbank/sonos-analyzer
 ```
 
 To run a specific release instead of the newest, replace `latest` with its version number, for example `ghcr.io/grahamfairbank/sonos-analyzer:0.3.0`.

@@ -20,16 +20,16 @@ If you'd rather not run a compiled file from the internet, or your company doesn
 
 ## Download
 
-Version 0.4.0. Select the file for your computer to download it:
+Version 0.5.0. Select the file for your computer to download it:
 
 | Computer | Download |
 |---|---|
-| Windows 10 or 11 | [SonosAnalyzer-0.4.0-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0/SonosAnalyzer-0.4.0-windows-x64.exe) (about 10 MB) |
-| Mac (Apple silicon or Intel) | [SonosAnalyzer-0.4.0-macos-universal.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0/SonosAnalyzer-0.4.0-macos-universal.zip) (about 15 MB) |
+| Windows 10 or 11 | [SonosAnalyzer-0.5.0-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.5.0/SonosAnalyzer-0.5.0-windows-x64.exe) (about 10 MB) |
+| Mac (Apple silicon or Intel) | [SonosAnalyzer-0.5.0-macos-universal.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.5.0/SonosAnalyzer-0.5.0-macos-universal.zip) (about 15 MB) |
 
 The Mac download is one universal app that runs natively on both Apple-silicon and Intel Macs. It has been started on an Intel Mac, and a user [confirmed it on an Apple-silicon Mac](https://github.com/grahamfairbank/sonos-analyzer/issues/9) (M3, macOS 27 beta): opening it, the Local Network prompt, discovery and Quit all worked.
 
-These links are for version 0.4.0; newer versions are listed on the [releases page](https://github.com/grahamfairbank/sonos-analyzer/releases), under **Assets**.
+These links are for version 0.5.0; newer versions are listed on the [releases page](https://github.com/grahamfairbank/sonos-analyzer/releases), under **Assets**.
 
 ## Windows
 
@@ -101,13 +101,13 @@ The download is this same Python code bundled with its own copy of Python by [Py
 
 Each release also includes `SHA256SUMS.txt`. To check a download matches what GitHub built, compare its checksum with the line for that file:
 
-- **Windows (PowerShell):** `Get-FileHash .\SonosAnalyzer-0.4.0-windows-x64.exe`
-- **Mac (Terminal):** `shasum -a 256 SonosAnalyzer-0.4.0-macos-universal.zip`
+- **Windows (PowerShell):** `Get-FileHash .\SonosAnalyzer-0.5.0-windows-x64.exe`
+- **Mac (Terminal):** `shasum -a 256 SonosAnalyzer-0.5.0-macos-universal.zip`
 
 From version 0.4.0, each download also has a signed build record (a GitHub "attestation") showing it was built by this repository's workflow from the tagged source. With the [GitHub CLI](https://cli.github.com/) installed, check a file with:
 
 ```
-gh attestation verify SonosAnalyzer-0.4.0-windows-x64.exe --repo grahamfairbank/sonos-analyzer
+gh attestation verify SonosAnalyzer-0.5.0-windows-x64.exe --repo grahamfairbank/sonos-analyzer
 ```
 
 The downloads aren't signed with a Microsoft or Apple developer certificate, which is why Windows and macOS ask before opening them.
