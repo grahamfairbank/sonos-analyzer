@@ -133,6 +133,13 @@ class AnalyzeTests(unittest.TestCase):
         f = finding(report(speakers, groups), "has speakers on different firmware")
         self.assertEqual(f.severity, "high")
 
+    def test_bonded_room_legacy_line_same_release(self):
+        # Issue #22: a Sub on the legacy line (86.x) bonded to a soundbar on 98.x, same build 82170.
+        speakers, groups = hh.household()
+        speakers[2].version = "98.0-82170"
+        speakers[3].version = "86.11-82170"  # Kitchen right
+        self.assertIsNone(finding(report(speakers, groups), "has speakers on different firmware"))
+
     def test_home_theater_satellite(self):
         sub = self.speakers["192.168.50.15"]
         self.assertEqual(sub["network_path"], "satellite")
@@ -265,3 +272,17 @@ class BridgeTests(unittest.TestCase):
         self.assertEqual(f.affected_ips, ["192.168.50.14"])
         self.assertIn("BPDU flooding", f.recommendation)
         self.assertIn("Root bridge: Den", finding(r, "SonosNet mesh active").detail)
+
+    def test_wired_only_spanning_tree_is_not_a_mesh(self):
+        # Issue #22: all speakers wired with radios off, an external switch as root.
+        stp = ("br0\n bridge id\t\t8000.020000000e00\n designated root\t8000.aabbccddeeff\n\n"
+               "eth0 (1)\n port id\t\t8001\t\t\tstate\t\t\tforwarding\n")
+        a = hh.Speaker(30, "A", "Sonos One", "S13", connection_type="4", connection_label="Ethernet (WiFi Disabled)",
+                       eth_link=True, stp=stp)
+        b = hh.Speaker(31, "B", "Sonos Five", "S23", connection_type="4", connection_label="Ethernet (WiFi Disabled)",
+                       eth_link=True, stp=stp.replace("020000000e00", "020000000f00"))
+        r = report([a, b], [[a], [b]])
+        f = finding(r, "Spanning tree active on 2 wired speaker(s)")
+        self.assertIn("No wireless SonosNet mesh", f.detail)
+        self.assertIn("outside your Sonos system", f.detail)
+        self.assertIsNone(finding(r, "SonosNet mesh active"))

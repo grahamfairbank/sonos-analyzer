@@ -9,6 +9,11 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 - Network layout checks: speakers on a different subnet from the rest of the household (medium), and the computer running the analyzer on a different subnet from the speakers (low). Sonos requires the app and all speakers on the same subnet ([system requirements](https://support.sonos.com/en-us/article/sonos-system-requirements)). Home theater surrounds report a wider netmask on the soundbar's direct link and are not counted as a split. The computer check is skipped in Docker, where the container's address says nothing about your phone.
 - Double NAT check: a router that answers UPnP is asked for its internet-side address. A private address (double NAT), a 100.64.x address (provider-shared, carrier-grade NAT) and more than one router answering are reported as informational; a single router with a public address shows "No double NAT". The public address itself is never shown or stored. Turn it off with `--no-router-check` or `SONOS_ANALYZER_ROUTER_CHECK=0`.
 
+### Fixed
+
+- A bonded room with a speaker on Sonos's legacy-product line (for example a Sub on 86.11-82170 with a Beam on 98.0-82170) was flagged high as "speakers on different firmware", although both are the same release. Bonded speakers now match when their build numbers match ([#22](https://github.com/grahamfairbank/sonos-analyzer/issues/22)).
+- When every speaker with spanning tree on is wired with its radio off, the finding now reads "Spanning tree active on N wired speaker(s), not a wireless mesh" instead of "SonosNet mesh active" ([#22](https://github.com/grahamfairbank/sonos-analyzer/issues/22)).
+
 ### Changed
 
 - The desktop app guide records that the universal Mac app works on Apple silicon (M3, macOS 27 beta), thanks to a user report in [#9](https://github.com/grahamfairbank/sonos-analyzer/issues/9), and clarifies the macOS 15+ first-open steps.

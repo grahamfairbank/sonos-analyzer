@@ -404,7 +404,11 @@ def _firmware_findings(
 
     for members in rooms.values():
         versions = {sp.software_version for sp in members}
-        if len(versions) > 1:
+        # Sonos's legacy-product line carries the same release under another version number
+        # (86.11-82170 alongside 98.0-82170), so bonded speakers match when the builds do.
+        builds = {_build(v) for v in versions}
+        same_release = len(builds) == 1 and "" not in builds
+        if len(versions) > 1 and not same_release:
             name = _room_name(members[0])
             findings.append(
                 Finding(
@@ -1069,13 +1073,27 @@ def _wired_findings(speakers: list[SpeakerDiagnostics], interface: dict | None =
         blocking = [sp for sp in meshed if any(state == "blocking" for _port, state in sp.stp_ports)]
         root_id = stp_root(speakers)
         outside_root = bool(root_id) and not roots
+        # With every radio off, spanning tree runs only across the Ethernet ports: no wireless mesh.
+        wired_only = all(_path(sp) == "wired" and not _radio_on(sp) for sp in meshed)
+        title = (
+            f"Spanning tree active on {len(meshed)} wired speaker(s), not a wireless mesh"
+            if wired_only
+            else f"SonosNet mesh active on {len(meshed)} speaker(s)"
+        )
+        wired_note = (
+            "Every one of these speakers has its Wi-Fi radio off, so this is spanning tree across their Ethernet "
+            "ports, which Sonos keeps running to prevent loops. No wireless SonosNet mesh is in use. "
+            if wired_only
+            else ""
+        )
         findings.append(
             Finding(
                 severity="info",
                 category="wired",
-                title=f"SonosNet mesh active on {len(meshed)} speaker(s)",
+                title=title,
                 detail=(
-                    (f"Root bridge: {_names(roots)}. " if roots else "")
+                    wired_note
+                    + (f"Root bridge: {_names(roots)}. " if roots else "")
                     + (
                         f"Root bridge: a device outside your Sonos system (bridge ID {root_id}), usually a network switch. "
                         if outside_root else ""
