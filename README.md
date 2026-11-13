@@ -216,7 +216,7 @@ See [CHANGELOG.md](CHANGELOG.md) for each release. Based on [soinkleined/sonos-a
 - A ready-built multi-architecture image on GitHub Container Registry, and a Docker Desktop guide for laptops
 - Fixes: model name and version were never read from the device description; the Trueplay state was interpreted the wrong way round
 
-Tested against one household (Sonos S2, Wi-Fi and Ethernet, SonosNet off), on Linux, with the desktop app also run on Windows. SonosNet / Boost setups, S1 systems and portable speakers are untested; in particular the SonosNet checks (spanning-tree root, blocked Ethernet ports) have only been tested with made-up data.
+Tested against one household (Sonos S2, Wi-Fi and Ethernet, SonosNet off), on Linux, with the desktop app also run on Windows, an Intel Mac and an Apple-silicon Mac. SonosNet / Boost setups, S1 systems and portable speakers are untested; in particular the SonosNet checks (spanning-tree root, blocked Ethernet ports) have only been tested with made-up data.
 
 ## License
 

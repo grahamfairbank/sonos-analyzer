@@ -2,6 +2,12 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The desktop app guide records that the universal Mac app works on Apple silicon (M3, macOS 27 beta), thanks to a user report in [#9](https://github.com/grahamfairbank/sonos-analyzer/issues/9), and clarifies the macOS 15+ first-open steps.
+
 ## [0.4.0] - 2026-11-13
 
 First full release of the fork: the desktop app leaves pilot, with scan history and monitoring, plain-language readings and an independent review of the release candidate.

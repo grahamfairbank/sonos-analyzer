@@ -27,7 +27,7 @@ Version 0.4.0. Select the file for your computer to download it:
 | Windows 10 or 11 | [SonosAnalyzer-0.4.0-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0/SonosAnalyzer-0.4.0-windows-x64.exe) (about 10 MB) |
 | Mac (Apple silicon or Intel) | [SonosAnalyzer-0.4.0-macos-universal.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0/SonosAnalyzer-0.4.0-macos-universal.zip) (about 15 MB) |
 
-The Mac download is one universal app that runs natively on both Apple-silicon and Intel Macs. It has been built and started on an Intel Mac but not yet confirmed on an Apple-silicon Mac; if you try it there, please [tell us how it went](https://github.com/grahamfairbank/sonos-analyzer/issues/9).
+The Mac download is one universal app that runs natively on both Apple-silicon and Intel Macs. It has been started on an Intel Mac, and a user [confirmed it on an Apple-silicon Mac](https://github.com/grahamfairbank/sonos-analyzer/issues/9) (M3, macOS 27 beta): opening it, the Local Network prompt, discovery and Quit all worked.
 
 These links are for version 0.4.0; newer versions are listed on the [releases page](https://github.com/grahamfairbank/sonos-analyzer/releases), under **Assets**.
 
@@ -45,7 +45,7 @@ To stop it, select **Quit Sonos Analyzer** on the page, or close the black windo
 
 1. Open the downloaded `.zip` file. (Safari usually unzips it for you.) You get **Sonos Analyzer**. You can drag it to Applications, but you don't have to.
 2. Double-click **Sonos Analyzer**. macOS stops it the first time:
-   - **macOS 15 (Sequoia) and later:** a message says it was not opened. Choose **Done**. Open **System Settings** > **Privacy & Security**, scroll down to **Security**, and select **Open Anyway** next to the Sonos Analyzer message. Enter your password, then select **Open Anyway** again.
+   - **macOS 15 (Sequoia) and later:** a message says it was not opened, and the only choices are **Move to Trash** and **Done**. Choose **Done**. Open **System Settings** > **Privacy & Security**, scroll down to **Security** near the bottom, and select **Open Anyway** next to the Sonos Analyzer message. Enter your password, then select **Open Anyway** again.
    - **macOS 14 (Sonoma) and earlier:** Control-click (or right-click) **Sonos Analyzer**, choose **Open**, then **Open** again.
 3. The analyzer opens in your browser. The app has no window or Dock icon of its own; the browser page is the app.
 4. When macOS asks to **find devices on local networks**, choose **Allow**. Without it the app cannot reach the speakers. If you chose Don't Allow, turn it on in **System Settings** > **Privacy & Security** > **Local Network**.
