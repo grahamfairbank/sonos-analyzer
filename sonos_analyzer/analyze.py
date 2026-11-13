@@ -426,9 +426,9 @@ def _firmware_findings(
         main = next(g for g in summary if g["version"] == lines["main"])
         detail = (
             f"{_and_list(maintenance['models'])} speakers run {maintenance['version']}, while newer models run "
-            f"{main['version']}. Sonos keeps products in a later stage of their support life on their own "
-            "maintenance line, which carries fixes and compatibility updates while new features arrive on "
-            "the main line first."
+            f"{main['version']}. Since August 2025, Sonos keeps some of its earliest S2 products on their own "
+            "firmware line, which receives essential updates with a focus on stability. Sonos says the different "
+            "version number is normal and does not affect how these speakers work with the rest of the system."
         )
         if lines["same_release"]:
             parts = [p for p in (main["display_version"], f"build {_build(main['version'])}" if _build(main["version"]) else "") if p]
@@ -436,11 +436,12 @@ def _firmware_findings(
                 " Both are the same Sonos release" + (f" ({', '.join(parts)})" if parts else "")
                 + ", so these speakers are fully up to date."
             )
+        detail += " Source: support.sonos.com/en/article/legacy-product-update"
         findings.append(
             Finding(
                 severity="ok" if lines["same_release"] else "info",
                 category="firmware",
-                title=f"{maintenance['count']} older speaker(s) are current on Sonos's maintenance line",
+                title=f"{maintenance['count']} older speaker(s) are up to date on Sonos's legacy-product line",
                 detail=detail,
                 affected=_affected(
                     [by_ip[s["ip"]] for s in maintenance["speakers"]],

@@ -256,7 +256,7 @@
 <script>
   const $ = (id) => document.getElementById(id);
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
-  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: maintenance line", behind: "Missed an update" };
+  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: legacy-product line", behind: "Missed an update" };
   const fmt = (n) => Math.round(n).toLocaleString();
   const utcTime = (iso) => iso ? new Date(iso).toISOString().slice(11, 19) : "";
   // What the PHY number is based on, for each speaker.

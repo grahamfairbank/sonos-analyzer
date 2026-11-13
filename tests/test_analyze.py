@@ -77,7 +77,7 @@ class AnalyzeTests(unittest.TestCase):
         self.assertIn("expected 85.0-64110", f.affected[0]["note"])
 
     def test_maintenance_line_same_release(self):
-        f = finding(self.report, "current on Sonos's maintenance line")
+        f = finding(self.report, "up to date on Sonos's legacy-product line")
         self.assertEqual(f.severity, "ok")
         self.assertEqual(f.affected_ips, ["192.168.50.17"])
         self.assertIn("same Sonos release", f.detail)
@@ -87,7 +87,7 @@ class AnalyzeTests(unittest.TestCase):
         main = hh.Speaker(30, "A", "Sonos Era 100", "S39", version="98.0-82170")
         old = hh.Speaker(31, "B", "Sonos Play:1", "S12", version="86.11-80000")
         r = report([main, old], [[main], [old]])
-        f = finding(r, "maintenance line")
+        f = finding(r, "legacy-product line")
         self.assertEqual(f.severity, "info")
         self.assertNotIn("same Sonos release", f.detail)
         self.assertIsNone(finding(r, "missed a firmware update"))
@@ -115,7 +115,7 @@ class AnalyzeTests(unittest.TestCase):
         b = hh.Speaker(31, "B", "Sonos Five", "S23")
         r = report([a, b], [[a], [b]])
         self.assertIsNotNone(finding(r, "Firmware matched"))
-        self.assertIsNone(finding(r, "maintenance line"))
+        self.assertIsNone(finding(r, "legacy-product line"))
 
     def test_bonded_room_mixed_firmware(self):
         speakers, groups = hh.household()
