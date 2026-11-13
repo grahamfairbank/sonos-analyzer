@@ -56,9 +56,34 @@ class CollectTests(unittest.TestCase):
 
     def test_phy_rate_sampled(self):
         snap = collect.collect_snapshot(["192.168.50.10"], phy_sample_seconds=0.05)
-        rate = snap.speakers["192.168.50.10"].phy_error_rate
-        self.assertIsNotNone(rate)
-        self.assertGreater(rate, 0)
+        den = snap.speakers["192.168.50.10"]
+        # The rate is the second reading over the measured window, not the review's counter.
+        self.assertEqual(den.phy_window_errors, 1200)
+        self.assertGreaterEqual(den.phy_window_seconds, 0.05)
+        self.assertAlmostEqual(den.phy_error_rate, 1200 / den.phy_window_seconds)
+        self.assertEqual(snap.phy_sample.requested_seconds, 0.05)
+        self.assertTrue(snap.phy_sample.started_at.endswith("+00:00"))
+
+    def test_phy_skipped(self):
+        snap = collect.collect_snapshot(["192.168.50.10"], phy_sample_seconds=0)
+        self.assertIsNone(snap.phy_sample)
+        self.assertIsNone(snap.speakers["192.168.50.10"].phy_error_rate)
+
+    def test_phy_second_read_fails(self):
+        reads = {"n": 0}
+
+        def flaky(ip):
+            reads["n"] += 1
+            if ip == "192.168.50.12" and reads["n"] > len(self.fake):
+                raise OSError("timed out")
+            return hh.ath_status(self.fake[ip])
+
+        collect.fetch_ath_status.side_effect = flaky
+        snap = collect.collect_snapshot(["192.168.50.10"], phy_sample_seconds=0.05)
+        left = snap.speakers["192.168.50.12"]
+        self.assertIsNone(left.phy_error_rate)
+        self.assertEqual(left.phy_not_measured, "second reading: read failed: timed out")
+        self.assertIsNotNone(snap.speakers["192.168.50.10"].phy_error_rate)
 
     def test_review_error_is_not_fatal(self):
         collect.fetch_review.side_effect = [OSError("timed out"), hh.review_xml(self.speakers)]

@@ -35,11 +35,17 @@ def print_terminal(report: AnalysisReport) -> None:
     for sp in report.speakers:
         name = sp["room_name"] if not sp["role"] else f"  {sp['role']}" if _is_secondary(sp) else f"{sp['room_name']} / {sp['role']}"
         rate = sp["phy_errors_per_sec"]
-        rate_text = f", {rate:,.0f} PHY err/s" if rate is not None else ""
+        if rate is not None:
+            rate_text = f", {rate:,.0f} PHY errors per second ({sp['phy_window_errors']:,} in {sp['phy_window_seconds']:.2f} s)"
+        else:
+            rate_text = ", PHY not measured" if sp.get("phy_not_measured") else ""
         print(
             f"  {name:<26} {sp['ip_address']:<16} {sp['model_name'] or '':<24} "
             f"{sp['connection_summary']}{rate_text}"
         )
+    print()
+
+    print(f"  {phy_method(report.snapshot.phy_sample)}")
     print()
 
     print("Firmware")
@@ -87,6 +93,7 @@ def report_payload(report: AnalysisReport) -> dict:
         "recommendations": report.recommendations,
         "source_ips": report.snapshot.source_ips,
         "fetch_errors": report.snapshot.fetch_errors,
+        "phy_sample": asdict(report.snapshot.phy_sample) if report.snapshot.phy_sample else None,
     }
 
 
@@ -154,11 +161,12 @@ def render_html(report: AnalysisReport) -> str:
   <table>
     <thead>
       <tr>
-        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors/s</th><th>RX drop %</th>
+        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>RX drop %</th>
       </tr>
     </thead>
     <tbody>{speaker_rows}</tbody>
   </table>
+  <p class="meta">{escape(phy_method(report.snapshot.phy_sample))}</p>
 
   <h2>Firmware</h2>
   <table>
@@ -209,8 +217,29 @@ def _html_signal_matrix(connections: dict) -> str:
     )
 
 
-def _html_speaker_row(sp: dict) -> str:
+def phy_method(sample) -> str:
+    """One line on how PHY error rates were measured."""
+    if not sample:
+        return "PHY errors per second were not measured in this scan."
+    start, end = sample.started_at[11:19], sample.ended_at[11:19]
+    return (
+        f"PHY errors per second: each radio's error counter was cleared, then read again {sample.requested_seconds:g} s later, "
+        f"for all speakers at the same time ({start}-{end} UTC), so the rates compare directly. The counter's earlier "
+        "value is not used because its start time is unknown."
+    )
+
+
+def _phy_cell(sp: dict) -> str:
     rate = sp["phy_errors_per_sec"]
+    if rate is not None:
+        title = f"{sp['phy_window_errors']:,} errors in {sp['phy_window_seconds']:.2f} s"
+        return f'<td title="{escape(title)}">{rate:,.0f}/s</td>'
+    if sp.get("phy_not_measured"):
+        return f'<td title="{escape(sp["phy_not_measured"])}">not measured</td>'
+    return "<td></td>"
+
+
+def _html_speaker_row(sp: dict) -> str:
     drop = sp["br0_rx_drop_ratio_pct"]
     return (
         "<tr>"
@@ -220,7 +249,7 @@ def _html_speaker_row(sp: dict) -> str:
         f"<td>{escape(sp['model_name'] or '')}</td>"
         f"<td>{escape(sp['connection_summary'] or '')}</td>"
         f"<td>{escape(sp['software_version'] or '')}</td>"
-        f"<td>{f'{rate:,.0f}' if rate is not None else ''}</td>"
+        f"{_phy_cell(sp)}"
         f"<td>{drop if drop is not None else ''}</td>"
         "</tr>"
     )

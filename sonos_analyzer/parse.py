@@ -74,6 +74,18 @@ class SpeakerDiagnostics:
     radio_peers: list[tuple[str, int, int, str]] = field(default_factory=list)
     # PHY errors per second, sampled over a short window by the collector
     phy_error_rate: float | None = None
+    phy_window_errors: int | None = None  # errors counted in that window
+    phy_window_seconds: float | None = None  # window length, from reset read to second read
+    phy_not_measured: str = ""  # why there is no rate, when the speaker has a radio counter
+
+
+@dataclass
+class PhySample:
+    """How the PHY error rates were measured, so readers can judge them."""
+
+    requested_seconds: float
+    started_at: str  # UTC, ISO 8601: when the counters were cleared
+    ended_at: str  # UTC: when they were read again
 
 
 @dataclass
@@ -81,6 +93,7 @@ class HouseholdSnapshot:
     speakers: dict[str, SpeakerDiagnostics] = field(default_factory=dict)
     source_ips: list[str] = field(default_factory=list)
     fetch_errors: list[str] = field(default_factory=list)
+    phy_sample: PhySample | None = None
 
 
 def parse_review_xml(xml_text: str) -> dict[str, SpeakerDiagnostics]:

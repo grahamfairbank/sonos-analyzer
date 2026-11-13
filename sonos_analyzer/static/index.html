@@ -91,6 +91,7 @@
     tbody tr:last-child td { border-bottom: 0; }
     td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
     td .sub { display: block; font-size: 12px; color: var(--muted); }
+    .table-note { font-size: 13px; margin: 10px 4px 2px; }
     code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     .badge {
@@ -162,7 +163,7 @@
   <header>
     <button id="quit-button" class="button secondary" type="button" style="float: right" hidden>Quit Sonos Analyzer</button>
     <h1>Sonos Analyzer</h1>
-    <p class="muted">Firmware, Wi-Fi, wiring and bonded-room health for the Sonos speakers on this network. Read-only; nothing on your speakers is changed.</p>
+    <p class="muted">Firmware, Wi-Fi, wiring and bonded-room health for the Sonos speakers on this network. Read-only: no settings on your speakers are changed. (Reading a radio's PHY error counter clears it, as it does for any reader.)</p>
   </header>
 
   <form id="scan-form" class="card">
@@ -197,12 +198,13 @@
         <thead>
           <tr>
             <th>Room</th><th>Model</th><th>IP</th><th>Connection</th><th>Firmware</th><th>Trueplay</th>
-            <th class="num" title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors/s</th>
+            <th class="num" title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors<br><span class="muted">per second</span></th>
             <th class="num" title="Worst noise floor across the radio's receive chains">Noise floor</th>
           </tr>
         </thead>
         <tbody id="speakers"></tbody>
       </table>
+      <p id="phy-method" class="muted table-note" hidden></p>
     </div>
 
     <h2>Findings</h2>
@@ -211,7 +213,7 @@
     <h2>Radio channels</h2>
     <div class="card table-wrap">
       <table>
-        <thead><tr><th>Use</th><th>Channel</th><th>Speakers <span class="muted">(PHY errors/s)</span></th></tr></thead>
+        <thead><tr><th>Use</th><th>Channel</th><th>Speakers <span class="muted">(PHY errors per second)</span></th></tr></thead>
         <tbody id="wireless"></tbody>
       </table>
     </div>
@@ -256,6 +258,20 @@
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
   const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: maintenance line", behind: "Missed an update" };
   const fmt = (n) => Math.round(n).toLocaleString();
+  const utcTime = (iso) => iso ? new Date(iso).toISOString().slice(11, 19) : "";
+  // What the PHY number is based on, for each speaker.
+  const phyTitle = (sp) => {
+    if (sp.phy_errors_per_sec != null)
+      return `${fmt(sp.phy_window_errors)} errors in ${sp.phy_window_seconds.toFixed(2)} s = ${fmt(sp.phy_errors_per_sec)} per second, counted from a reset by this scan`;
+    if (sp.phy_not_measured) return `Not measured: ${sp.phy_not_measured}`;
+    return "This speaker's radio has no PHY counter to read";
+  };
+  const phyMethod = (sample) => sample
+    ? `PHY errors per second: how measured. The analyzer cleared each radio's error counter, then read it again ` +
+      `${sample.requested_seconds} s later. All speakers were measured at the same time ` +
+      `(${utcTime(sample.started_at)}–${utcTime(sample.ended_at)} UTC), so the rates compare directly. ` +
+      `The counter's earlier value isn't used because its start time is unknown. Hover a number for its exact count and window.`
+    : "PHY errors per second were not measured in this scan.";
 
   // Speaker names and findings come from the network, so everything is set via textContent.
   function el(tag, props = {}, children = []) {
@@ -447,6 +463,8 @@
     const roomSizes = {};
     for (const sp of report.speakers) roomSizes[sp.room_id] = (roomSizes[sp.room_id] || 0) + 1;
     let previousRoom = null;
+    $("phy-method").hidden = false;
+    $("phy-method").textContent = phyMethod(report.phy_sample);
     $("speakers").replaceChildren(...report.speakers.map((sp, i) => {
       const member = sp.room_id === previousRoom;
       const next = report.speakers[i + 1];
@@ -467,7 +485,8 @@
           el("span", { className: "sub", textContent: sp.display_version ? sp.software_version : "" })]),
         el("td", { className: sp.trueplay && sp.trueplay !== "not applicable" ? "" : "muted", textContent: sp.trueplay === "tuned" ? "Tuned" : sp.trueplay === "not tuned" ? "Not tuned" : sp.trueplay === "not applicable" ? "Not applicable" : "—" }),
         el("td", { className: "num" + (noisy.has(sp.ip_address) && rate != null ? " medium" : ""),
-          textContent: rate == null ? "—" : fmt(rate) }),
+          title: phyTitle(sp),
+          textContent: rate == null ? (sp.phy_not_measured ? "not measured" : "—") : `${fmt(rate)}/s` }),
         el("td", { className: "num", textContent: sp.noise_floor_dbm == null ? "—" : `${sp.noise_floor_dbm} dBm` }),
       ]);
       if (member) row.classList.add("member");
@@ -498,7 +517,7 @@
         : ["—"]),
       el("td", { className: "wrap" }, [chips(w.speakers.map((sp) => [
         sp.name,
-        sp.phy_errors_per_sec == null ? "" : fmt(sp.phy_errors_per_sec),
+        sp.phy_errors_per_sec == null ? "" : `${fmt(sp.phy_errors_per_sec)}/s`,
         noisy.has(sp.ip) ? "medium" : "",
       ]))]),
     ])));

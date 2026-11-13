@@ -1030,6 +1030,10 @@ def _speaker_to_dict(sp: SpeakerDiagnostics) -> dict:
         "br0_rx_drop_ratio_pct": round(drop_ratio, 1) if drop_ratio is not None else None,
         "br0_rx_packets": sp.br0.rx_packets,
         "br0_rx_dropped": sp.br0.rx_dropped,
-        "phy_errors": sp.phy_errors,
+        # From the support review; covers an unknown period since anything last read the counter.
+        "phy_errors_unknown_window": sp.phy_errors,
         "phy_errors_per_sec": _round_rate(sp.phy_error_rate),
+        "phy_window_errors": sp.phy_window_errors,
+        "phy_window_seconds": round(sp.phy_window_seconds, 2) if sp.phy_window_seconds is not None else None,
+        "phy_not_measured": sp.phy_not_measured,
     }

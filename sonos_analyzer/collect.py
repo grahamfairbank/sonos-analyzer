@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 
 from sonos_analyzer.fetch import (
     fetch_ath_status,
@@ -16,6 +17,7 @@ from sonos_analyzer.fetch import (
 from sonos_analyzer.targets import clean_text
 from sonos_analyzer.parse import (
     HouseholdSnapshot,
+    PhySample,
     merge_speakers,
     parse_device_description,
     parse_review_xml,
@@ -100,19 +102,46 @@ def _add_device_descriptions(snapshot: HouseholdSnapshot, pool: ThreadPoolExecut
         speaker.display_version = meta.get("display_version", speaker.display_version)
 
 
-def _sample_phy_error_rates(snapshot: HouseholdSnapshot, pool: ThreadPoolExecutor, seconds: float) -> None:
-    """The PHY error counter resets on every read, so read twice and divide."""
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
-    def read(ip: str) -> tuple[float, int] | None:
+
+def _sample_phy_error_rates(snapshot: HouseholdSnapshot, pool: ThreadPoolExecutor, seconds: float) -> None:
+    """Measure each radio's PHY error rate over the same short window.
+
+    The counter clears every time it is read, so its value in the support review covers
+    an unknown period (since whatever read it last). Instead every speaker is read at the
+    same moment, which clears the counter, then read again after `seconds`: the second
+    value is exactly the errors in that window. Each read is timed at its midpoint.
+    """
+
+    def read(ip: str) -> tuple[float, int] | str:
+        before = time.monotonic()
         try:
-            match = PHY_ERRORS_RE.search(fetch_ath_status(ip))
-        except Exception:  # noqa: BLE001 - rate is optional
-            return None
-        return (time.monotonic(), int(match.group(1))) if match else None
+            text = fetch_ath_status(ip)
+        except Exception as exc:  # noqa: BLE001 - rate is optional
+            return clean_text(f"read failed: {exc}")
+        match = PHY_ERRORS_RE.search(text)
+        if not match:
+            return "no PHY counter in the radio status"
+        return ((before + time.monotonic()) / 2, int(match.group(1)))
 
     ips = [ip for ip, sp in snapshot.speakers.items() if sp.phy_errors is not None]
+    if not ips:
+        return
+    started_at = _utc_now()
     baseline = list(pool.map(read, ips))
     time.sleep(seconds)
-    for ip, first, second in zip(ips, baseline, pool.map(read, ips)):
-        if first and second and second[0] > first[0]:
-            snapshot.speakers[ip].phy_error_rate = second[1] / (second[0] - first[0])
+    final = list(pool.map(read, ips))
+    snapshot.phy_sample = PhySample(requested_seconds=seconds, started_at=started_at, ended_at=_utc_now())
+    for ip, first, second in zip(ips, baseline, final):
+        speaker = snapshot.speakers[ip]
+        if isinstance(first, str):
+            speaker.phy_not_measured = f"first reading: {first}"
+        elif isinstance(second, str):
+            speaker.phy_not_measured = f"second reading: {second}"
+        elif second[0] > first[0]:
+            window = second[0] - first[0]
+            speaker.phy_window_errors = second[1]
+            speaker.phy_window_seconds = window
+            speaker.phy_error_rate = second[1] / window

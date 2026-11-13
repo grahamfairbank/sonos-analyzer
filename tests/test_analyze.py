@@ -145,6 +145,25 @@ class ReportTests(unittest.TestCase):
         json.dumps(payload)
         self.assertEqual(payload["speaker_count"], 11)
 
+    def test_phy_method_disclosed(self):
+        from sonos_analyzer.parse import PhySample
+        from tests.helpers import snapshot
+        from sonos_analyzer.analyze import analyze
+
+        snap = snapshot()
+        snap.phy_sample = PhySample(5.0, "2026-11-13T02:31:05+00:00", "2026-11-13T02:31:10+00:00")
+        den = snap.speakers["192.168.50.10"]
+        den.phy_window_errors, den.phy_window_seconds, den.phy_error_rate = 6210, 5.01, 6210 / 5.01
+        snap.speakers["192.168.50.12"].phy_not_measured = "second reading: read failed: timed out"
+        r = analyze(snap)
+        payload = report_payload(r)
+        self.assertEqual(payload["phy_sample"]["requested_seconds"], 5.0)
+        html = render_html(r)
+        self.assertIn("02:31:05-02:31:10 UTC", html)
+        self.assertIn('title="6,210 errors in 5.01 s">1,240/s<', html)
+        self.assertIn("not measured", html)
+        self.assertIn("PHY errors per second were not measured", render_html(report()))
+
     def test_html_escapes_speaker_text(self):
         sp = hh.Speaker(30, "<script>alert(1)</script>", "Sonos One", "S13")
         html = render_html(report([sp], [[sp]]))
