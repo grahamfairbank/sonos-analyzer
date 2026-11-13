@@ -14,7 +14,7 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 - Informational section: findings that need no action are collected in a collapsed section and never counted in the severity tiles; the DFS channel note is now informational ([#17](https://github.com/grahamfairbank/sonos-analyzer/issues/17)).
 - Group coordinator check: a group led by a speaker on a noisy or older radio while a wired or better-placed member could lead it, with how to regroup ([#18](https://github.com/grahamfairbank/sonos-analyzer/issues/18)).
 - Older Wi-Fi radios: informational note listing models Sonos documents as 802.11a/b/g without WPA3, so a router change keeps WPA2 available for them ([#19](https://github.com/grahamfairbank/sonos-analyzer/issues/19)).
-- SonosNet bridge health: warns when spanning tree blocks a wired speaker's Ethernet port, with Sonos's managed-switch requirements (STP and BPDU flooding) ([#20](https://github.com/grahamfairbank/sonos-analyzer/issues/20)).
+- SonosNet bridge health: warns when spanning tree blocks a wired speaker's Ethernet port, with Sonos's managed-switch requirements (STP and BPDU flooding); names the root bridge (a speaker, or a device outside Sonos such as a switch) and tracks root changes between scans, which make the network re-form ([#20](https://github.com/grahamfairbank/sonos-analyzer/issues/20)).
 - Noise floor coloring also uses an older radio's interference (ANI) level, as Sonos's own network matrix does; failed radio resets are reported when non-zero ([#21](https://github.com/grahamfairbank/sonos-analyzer/issues/21)).
 - Auto / Light / Dark theme switch; Auto follows the system setting ([#16](https://github.com/grahamfairbank/sonos-analyzer/issues/16)).
 

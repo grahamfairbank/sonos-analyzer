@@ -941,6 +941,12 @@ def _error_ratio(sp: SpeakerDiagnostics) -> float:
     return 100.0 * errors / packets if packets else 0.0
 
 
+def stp_root(speakers: list[SpeakerDiagnostics]) -> str:
+    """The spanning-tree root most speakers agree on, or ''."""
+    ids = [sp.stp_root_id for sp in speakers if sp.stp_root_id]
+    return max(set(ids), key=ids.count) if ids else ""
+
+
 def _wired_findings(speakers: list[SpeakerDiagnostics], interface: dict | None = None) -> list[Finding]:
     findings: list[Finding] = []
     wired = [sp for sp in speakers if _path(sp) == "wired"]
@@ -1018,6 +1024,8 @@ def _wired_findings(speakers: list[SpeakerDiagnostics], interface: dict | None =
     if meshed:
         roots = [sp for sp in meshed if sp.stp_is_root]
         blocking = [sp for sp in meshed if any(state == "blocking" for _port, state in sp.stp_ports)]
+        root_id = stp_root(speakers)
+        outside_root = bool(root_id) and not roots
         findings.append(
             Finding(
                 severity="info",
@@ -1025,6 +1033,10 @@ def _wired_findings(speakers: list[SpeakerDiagnostics], interface: dict | None =
                 title=f"SonosNet mesh active on {len(meshed)} speaker(s)",
                 detail=(
                     (f"Root bridge: {_names(roots)}. " if roots else "")
+                    + (
+                        f"Root bridge: a device outside your Sonos system (bridge ID {root_id}), usually a network switch. "
+                        if outside_root else ""
+                    )
                     + (f"{len(blocking)} speaker(s) have a blocked port, which is how the mesh avoids loops." if blocking else "")
                 ).strip()
                 or "Speakers are bridging through SonosNet.",
@@ -1315,6 +1327,33 @@ def _history_findings(changes: dict) -> list[Finding]:
                     item(c["to"], f"took over from {names.get(c['from'], c['from'])} at {c['at'][11:16]} UTC")
                     for c in changes["coordinator_changes"]
                 ],
+            )
+        )
+
+    root_changes = changes.get("stp_root_changes", [])
+    if root_changes:
+        def root_name(root_id: str) -> str:
+            return names.get(changes.get("bridge_ids", {}).get(root_id, ""), "") or f"a device outside Sonos ({root_id})"
+
+        findings.append(
+            Finding(
+                severity="low" if len(root_changes) >= 3 else "info",
+                category="wired",
+                title=f"SonosNet spanning-tree root changed {len(root_changes)} time(s) in the last {days} days",
+                detail=(
+                    "Each change makes the network re-form, which can cause brief dropouts. An occasional change "
+                    "follows a speaker or switch restarting; frequent changes suggest a device that keeps restarting "
+                    "or a cable that keeps disconnecting."
+                ),
+                affected=[
+                    {"name": root_name(c["to"]), "ip": "", "note": f"took over from {root_name(c['from'])} at {c['at'][11:16]} UTC"}
+                    for c in root_changes
+                ],
+                recommendation=(
+                    "Check that wired speakers and switches have stable power and cables, and that managed switches "
+                    "have STP and BPDU flooding enabled."
+                    if len(root_changes) >= 3 else ""
+                ),
             )
         )
 

@@ -74,6 +74,8 @@ class SpeakerDiagnostics:
     sonosnet_disabled: bool | None = None
     stp_enabled: bool | None = None
     stp_is_root: bool = False
+    stp_bridge_id: str = ""  # this speaker's bridge ID, e.g. 8000.020000000a00 (priority.MAC)
+    stp_root_id: str = ""  # the bridge ID of the spanning-tree root it sees
     stp_ports: list[tuple[str, str]] = field(default_factory=list)
     # Other radios this speaker hears: (mac, signal from, signal to, stp state)
     radio_peers: list[tuple[str, int, int, str]] = field(default_factory=list)
@@ -346,7 +348,9 @@ def _parse_showstp(text: str, speaker: SpeakerDiagnostics) -> None:
     if not bridge_id:
         return
     speaker.stp_enabled = True
+    speaker.stp_bridge_id = bridge_id.group(1).lower()
     root = re.search(r"designated root\s+(\S+)", text)
+    speaker.stp_root_id = root.group(1).lower() if root else ""
     speaker.stp_is_root = bool(root) and root.group(1) == bridge_id.group(1)
 
     port = None

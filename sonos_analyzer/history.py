@@ -57,9 +57,12 @@ def record_from_snapshot(snapshot: HouseholdSnapshot, scanned_at: datetime) -> d
             "br0": _counters(sp.br0),
             "wired": sp.ethernet_link,
         }
+    root_ids = [sp.stp_root_id for sp in snapshot.speakers.values() if sp.stp_root_id]
     return {
         "scanned_at": scanned_at.isoformat(timespec="seconds"),
         "speakers": speakers,
+        "stp_root": max(set(root_ids), key=root_ids.count) if root_ids else "",
+        "bridge_ids": {sp.stp_bridge_id: sp.local_uid for sp in snapshot.speakers.values() if sp.stp_bridge_id},
         # Visible groups with more than one member: {coordinator: sorted members}
         "groups": {
             coord: sorted(members)
@@ -182,6 +185,15 @@ def compare(records: list[dict], current: dict) -> dict:
                     {"at": after["scanned_at"], "members": members, "from": old_coord, "to": coord}
                 )
 
+    stp_root_changes = [
+        {"at": after["scanned_at"], "from": before.get("stp_root", ""), "to": after.get("stp_root", "")}
+        for before, after in zip(chain, chain[1:])
+        if before.get("stp_root") and after.get("stp_root") and before["stp_root"] != after["stp_root"]
+    ]
+    bridge_ids = {}
+    for r in chain:
+        bridge_ids.update(r.get("bridge_ids", {}))
+
     missing, new = [], []
     if previous:
         missing = [uid for uid in previous["speakers"] if uid not in current["speakers"]]
@@ -196,6 +208,8 @@ def compare(records: list[dict], current: dict) -> dict:
         "ip_changes": ip_changes,
         "updates": updates,
         "coordinator_changes": coordinator_changes,
+        "stp_root_changes": stp_root_changes,
+        "bridge_ids": bridge_ids,
         "missing": missing,
         "new": new,
         "names": {uid: sp["name"] for r in chain for uid, sp in r["speakers"].items()},

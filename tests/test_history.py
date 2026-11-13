@@ -152,3 +152,41 @@ class DefaultDirTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StpRootTests(unittest.TestCase):
+    STP = ("br0\n bridge id\t\t{me}\n designated root\t{root}\n\n"
+           "eth0 (1)\n port id\t\t8001\t\t\tstate\t\t\tforwarding\n")
+
+    def household_with_root(self, root):
+        from tests import household as hh
+
+        speakers, groups = hh.household()
+        for sp in speakers[:2]:
+            sp.stp = self.STP.format(me=f"8000.{sp.mac.replace(':', '').lower()}", root=root)
+        return snapshot(speakers, groups)
+
+    def test_outside_root_named(self):
+        snap = self.household_with_root("1000.aabbccddeeff")
+        f = finding(analyze(snap), "SonosNet mesh active")
+        self.assertIn("outside your Sonos system (bridge ID 1000.aabbccddeeff)", f.detail)
+
+    def test_root_changes_tracked(self):
+        first = record(T0, self.household_with_root("1000.aabbccddeeff"))
+        den_bridge = "8000.020000000a00"
+        second = record(T0 + timedelta(minutes=15), self.household_with_root(den_bridge))
+        changes = history.compare([first], second)
+        self.assertEqual(len(changes["stp_root_changes"]), 1)
+        f = finding(analyze(self.household_with_root(den_bridge), changes), "spanning-tree root changed")
+        self.assertEqual(f.severity, "info")
+        self.assertEqual(f.affected[0]["name"], "Den")
+        self.assertIn("a device outside Sonos (1000.aabbccddeeff)", f.affected[0]["note"])
+
+    def test_repeated_root_changes_are_low(self):
+        roots = ["1000.aabbccddeeff", "8000.020000000a00"] * 2
+        chain = [record(T0 + timedelta(minutes=15 * i), self.household_with_root(r)) for i, r in enumerate(roots)]
+        changes = history.compare(chain[:-1], chain[-1])
+        self.assertEqual(len(changes["stp_root_changes"]), 3)
+        f = finding(analyze(self.household_with_root(roots[-1]), changes), "spanning-tree root changed")
+        self.assertEqual(f.severity, "low")
+        self.assertIn("BPDU", f.recommendation)
