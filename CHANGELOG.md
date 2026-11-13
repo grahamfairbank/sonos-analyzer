@@ -6,7 +6,11 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ### Fixed
 
-- Scans were refused with "Cross-origin requests are not allowed" when the web UI is served over HTTPS by a reverse proxy (TLS offload). An `https://` origin for the same host name is now accepted as well as `http://`.
+- Scans were refused with "Cross-origin requests are not allowed" when the web UI is served over HTTPS by a reverse proxy (TLS offload). An `https://` origin for the same host name is now accepted as well as `http://`. Thanks to @wimmme ([#1](https://github.com/grahamfairbank/sonos-analyzer/pull/1)).
+
+### Documentation
+
+- README: how to use the analyzer behind a reverse proxy.
 
 ## [0.4.0-beta.2] - 2026-11-12
 

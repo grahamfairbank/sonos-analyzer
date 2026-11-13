@@ -64,7 +64,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `docker compose
 | `SONOS_ANALYZER_PORT` | `8400` | Port the web UI listens on |
 | `SONOS_ANALYZER_INTERFACE` | all interfaces | Limit speaker discovery to one interface, by name (`eth0`) or IPv4 address |
 | `SONOS_ANALYZER_HOST` | `0.0.0.0` | Address the web UI binds to; set it to one of the host's addresses to serve the UI on that network only |
-| `SONOS_ANALYZER_ALLOWED_HOSTS` | none | Host names you open the page by, comma-separated (for example `nas.home.lan`). IP addresses, `localhost`, `.local` names and the machine's own name always work; other names are refused to block DNS-rebinding attacks. With Compose, put it in a `.env` file next to `docker-compose.yml`. |
+| `SONOS_ANALYZER_ALLOWED_HOSTS` | none | Host names you open the page by, comma-separated (for example `nas.home.lan`). IP addresses, `localhost`, `.local` names and the machine's own name always work; other names are refused to block DNS-rebinding attacks. With Compose, put it in a `.env` file next to `docker-compose.yml`. Behind a reverse proxy (including one that serves the page over `https://`), add the name you browse to, and make sure the proxy passes that name on in the `Host` header. |
 
 ### Without Compose
 
@@ -94,6 +94,7 @@ Docker Desktop on macOS and Windows runs containers inside a virtual machine, so
 - **"No Sonos speakers discovered"**: the host is probably not on the speakers' network (a different VLAN or subnet), or the network blocks multicast. Enter one speaker's IP in the UI; a single speaker describes the whole household. Find IPs in the Sonos app under Settings > System > About My System.
 - **"Could not read diagnostics from any speaker"**: discovery worked but the host cannot open TCP port 1400 on the speakers. Check routing and firewall rules between the two networks.
 - **"This page cannot be opened as …"**: you opened the page by a host name the analyzer doesn't know. Open it by IP address, or add the name to `SONOS_ANALYZER_ALLOWED_HOSTS` (see [Settings](#settings)).
+- **"Cross-origin requests are not allowed" behind a reverse proxy**: the proxy is changing the `Host` header, so it no longer matches the address in your browser. Configure the proxy to pass the original host name through (for example `proxy_set_header Host $host;` in nginx; HAProxy passes it by default).
 - **The page does not load**: check `docker compose ps`, that nothing else uses port 8400 (`ss -ltn | grep 8400`), and that the host's firewall allows the port.
 - **The UI has no login.** Anyone who can reach the port can run scans, so keep it on a trusted LAN and do not expose it to the internet. It only probes private IPv4 addresses and never changes speaker settings.
 
