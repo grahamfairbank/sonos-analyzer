@@ -1,8 +1,8 @@
-# Desktop app for Windows and Mac (pilot)
+# Desktop app for Windows and Mac
 
 The desktop app runs Sonos Analyzer on a laptop with no Docker and nothing else to install: download it, open it, and it opens the analyzer in your browser. Speaker discovery works too, so you usually don't need to type an IP address.
 
-> **This is a pilot.** The builds are not yet signed by a verified publisher, so Windows and macOS warn you before opening them the first time. The steps below show how to get past each warning. If you'd rather not, [run it from source with Python](#run-from-source-with-python) or use the [Docker Desktop guide](docker-desktop.md) instead.
+> The builds are not signed by a verified publisher, so Windows and macOS warn you before opening them the first time. The steps below show how to get past each warning. If you'd rather not, [run it from source with Python](#run-from-source-with-python) or use the [Docker Desktop guide](docker-desktop.md) instead.
 
 The app only reads diagnostics from the speakers. It never changes a Sonos setting, needs no Sonos account, and the page is only reachable from your own laptop.
 
@@ -20,16 +20,16 @@ If you'd rather not run a compiled file from the internet, or your company doesn
 
 ## Download
 
-Pilot version 0.4.0 beta 2. Select the file for your computer to download it:
+Version 0.4.0. Select the file for your computer to download it:
 
 | Computer | Download |
 |---|---|
-| Windows 10 or 11 | [SonosAnalyzer-0.4.0-beta.2-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-windows-x64.exe) (about 10 MB) |
-| Mac (Apple silicon or Intel) | [SonosAnalyzer-0.4.0-beta.2-macos-universal.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0-beta.2/SonosAnalyzer-0.4.0-beta.2-macos-universal.zip) (about 15 MB) |
+| Windows 10 or 11 | [SonosAnalyzer-0.4.0-windows-x64.exe](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0/SonosAnalyzer-0.4.0-windows-x64.exe) (about 10 MB) |
+| Mac (Apple silicon or Intel) | [SonosAnalyzer-0.4.0-macos-universal.zip](https://github.com/grahamfairbank/sonos-analyzer/releases/download/v0.4.0/SonosAnalyzer-0.4.0-macos-universal.zip) (about 15 MB) |
 
-The Mac download is one universal app that runs natively on both Apple-silicon and Intel Macs.
+The Mac download is one universal app that runs natively on both Apple-silicon and Intel Macs. It has been built and started on an Intel Mac but not yet confirmed on an Apple-silicon Mac; if you try it there, please [tell us how it went](https://github.com/grahamfairbank/sonos-analyzer/issues/9).
 
-These links are for this pilot version; newer versions are listed on the [releases page](https://github.com/grahamfairbank/sonos-analyzer/releases), under **Assets**.
+These links are for version 0.4.0; newer versions are listed on the [releases page](https://github.com/grahamfairbank/sonos-analyzer/releases), under **Assets**.
 
 ## Windows
 
@@ -101,8 +101,8 @@ The download is this same Python code bundled with its own copy of Python by [Py
 
 Each release also includes `SHA256SUMS.txt`. To check a download matches what GitHub built, compare its checksum with the line for that file:
 
-- **Windows (PowerShell):** `Get-FileHash .\SonosAnalyzer-0.4.0-beta.2-windows-x64.exe`
-- **Mac (Terminal):** `shasum -a 256 SonosAnalyzer-0.4.0-beta.2-macos-universal.zip`
+- **Windows (PowerShell):** `Get-FileHash .\SonosAnalyzer-0.4.0-windows-x64.exe`
+- **Mac (Terminal):** `shasum -a 256 SonosAnalyzer-0.4.0-macos-universal.zip`
 
 From version 0.4.0, each download also has a signed build record (a GitHub "attestation") showing it was built by this repository's workflow from the tagged source. With the [GitHub CLI](https://cli.github.com/) installed, check a file with:
 
@@ -114,7 +114,7 @@ The downloads aren't signed with a Microsoft or Apple developer certificate, whi
 
 The project has had an [independent security review](reviews/2026-11-12-fable-review.md); the findings are listed there with what was fixed.
 
-## Pilot feedback
+## Feedback
 
 Please [open a GitHub issue](https://github.com/grahamfairbank/sonos-analyzer/issues/new) and include:
 

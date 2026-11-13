@@ -1,5 +1,5 @@
 # Builds the desktop app for Windows and macOS (one universal app for Apple silicon
-# and Intel) and attaches it to the GitHub release. Builds are unsigned (pilot).
+# and Intel) and attaches it to the GitHub release. Builds are unsigned; provenance is attested.
 name: Build desktop app
 
 on:

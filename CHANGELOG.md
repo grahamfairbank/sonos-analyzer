@@ -2,7 +2,9 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.4.0] - 2026-11-13
+
+First full release of the fork: the desktop app leaves pilot, with scan history and monitoring, plain-language readings and an independent review of the release candidate.
 
 Includes the fixes from an [independent Fable review](docs/reviews/2026-11-13-fable-review.md) of the release candidate (R1 to R14).
 
@@ -133,6 +135,7 @@ Pilot pre-release of the desktop app.
 
 Original command-line analyzer by David Klein ([soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer)).
 
+[0.4.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0-beta.2...v0.4.0
 [0.4.0-beta.2]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [0.4.0-beta.1]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.3.0...v0.4.0-beta.1
 [0.3.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.2.0...v0.3.0
