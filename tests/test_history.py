@@ -143,7 +143,8 @@ class DefaultDirTests(unittest.TestCase):
         import os
         from unittest import mock
 
-        with mock.patch.dict(os.environ, {}, clear=True):
+        env = {k: v for k, v in os.environ.items() if k != "SONOS_ANALYZER_DATA"}
+        with mock.patch.dict(os.environ, env, clear=True):
             self.assertIsNone(history.default_dir())
             self.assertIsNotNone(history.default_dir(app_mode=True))
         with mock.patch.dict(os.environ, {"SONOS_ANALYZER_DATA": "/data"}):

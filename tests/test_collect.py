@@ -59,7 +59,8 @@ class CollectTests(unittest.TestCase):
         den = snap.speakers["192.168.50.10"]
         # The rate is the second reading over the measured window, not the review's counter.
         self.assertEqual(den.phy_window_errors, 1200)
-        self.assertGreaterEqual(den.phy_window_seconds, 0.05)
+        # Windows timers tick about every 15 ms, so allow some slack around the 50 ms window.
+        self.assertGreater(den.phy_window_seconds, 0.03)
         self.assertAlmostEqual(den.phy_error_rate, 1200 / den.phy_window_seconds)
         self.assertEqual(snap.phy_sample.requested_seconds, 0.05)
         self.assertTrue(snap.phy_sample.started_at.endswith("+00:00"))
