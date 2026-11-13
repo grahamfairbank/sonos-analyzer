@@ -8,6 +8,9 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 - Automated tests for parsing, analysis, speaker requests and the web server's protections, using a made-up household in the speakers' real response formats; they run on every push and pull request on Linux, Windows and macOS ([#2](https://github.com/grahamfairbank/sonos-analyzer/issues/2)).
 
+- Plain-language radio readings: noise floor, speaker-to-speaker signal and PHY errors show phone-style bars or a dot with a plain word and color, with the number underneath. Noise floor and signal use the bands and colors of the network matrix built into Sonos speakers; a collapsible "What these readings mean" section explains each reading ([#15](https://github.com/grahamfairbank/sonos-analyzer/issues/15)).
+- Auto / Light / Dark theme switch; Auto follows the system setting ([#16](https://github.com/grahamfairbank/sonos-analyzer/issues/16)).
+
 ### Changed
 
 - Firmware analysis recognizes the household's main line and the separate legacy-product line Sonos has kept some early S2 models on since August 2025 (citing Sonos's Legacy Product Update article). Speakers on either are reported as current; anything else is flagged as having missed an update, with the version it should be on ([#13](https://github.com/grahamfairbank/sonos-analyzer/issues/13)).

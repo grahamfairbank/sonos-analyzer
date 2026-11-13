@@ -160,7 +160,7 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(payload["phy_sample"]["requested_seconds"], 5.0)
         html = render_html(r)
         self.assertIn("02:31:05-02:31:10 UTC", html)
-        self.assertIn('title="6,210 errors in 5.01 s">1,240/s<', html)
+        self.assertIn('title="6,210 errors in 5.01 s">Not in use · 1,240/s<', html)
         self.assertIn("not measured", html)
         self.assertIn("PHY errors per second were not measured", render_html(report()))
 
@@ -173,3 +173,34 @@ class ReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LevelTests(unittest.TestCase):
+    def test_noise_bands_match_sonos_matrix(self):
+        from sonos_analyzer.analyze import noise_level
+
+        cases = {-105: "Quiet", -95: "Quiet", -94: "Some noise", -90: "Some noise", -89: "Noisy", -85: "Noisy", -84: "Very noisy", -70: "Very noisy"}
+        for dbm, label in cases.items():
+            with self.subTest(dbm=dbm):
+                self.assertEqual(noise_level(dbm)["label"], label)
+        self.assertIsNone(noise_level(None))
+
+    def test_signal_levels_on_links(self):
+        r = report()
+        tones = {l["band"]: l["level"]["tone"] for l in r.connections["links"]}
+        self.assertEqual(tones["strong"], "good")
+
+    def test_phy_levels(self):
+        from sonos_analyzer.analyze import phy_level
+        from sonos_analyzer.parse import SpeakerDiagnostics as S
+
+        wifi = S(zone_name="x", ip_address="192.168.50.1", connection_type_code="5", phy_error_rate=140.0)
+        self.assertEqual(phy_level(wifi, set())["label"], "Normal")
+        wifi.phy_error_rate = 800.0
+        self.assertEqual(phy_level(wifi, set())["label"], "High")
+        self.assertEqual(phy_level(wifi, {"192.168.50.1"})["label"], "Very high")
+        idle = S(zone_name="y", ip_address="192.168.50.2", connection_type_code="3", ethernet_link=True,
+                 phy_errors=5, phy_error_rate=1500.0)
+        self.assertEqual(phy_level(idle, set())["label"], "Not in use")
+        wifi.phy_error_rate = None
+        self.assertIsNone(phy_level(wifi, set()))

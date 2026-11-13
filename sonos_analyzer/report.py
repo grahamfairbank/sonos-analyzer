@@ -36,7 +36,8 @@ def print_terminal(report: AnalysisReport) -> None:
         name = sp["room_name"] if not sp["role"] else f"  {sp['role']}" if _is_secondary(sp) else f"{sp['room_name']} / {sp['role']}"
         rate = sp["phy_errors_per_sec"]
         if rate is not None:
-            rate_text = f", {rate:,.0f} PHY errors per second ({sp['phy_window_errors']:,} in {sp['phy_window_seconds']:.2f} s)"
+            word = f"{sp['phy_level']['label']}: " if sp.get("phy_level") else ""
+            rate_text = f", PHY errors {word}{rate:,.0f} per second ({sp['phy_window_errors']:,} in {sp['phy_window_seconds']:.2f} s)"
         else:
             rate_text = ", PHY not measured" if sp.get("phy_not_measured") else ""
         print(
@@ -161,7 +162,7 @@ def render_html(report: AnalysisReport) -> str:
   <table>
     <thead>
       <tr>
-        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>RX drop %</th>
+        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>Noise floor</th><th>RX drop %</th>
       </tr>
     </thead>
     <tbody>{speaker_rows}</tbody>
@@ -233,10 +234,19 @@ def _phy_cell(sp: dict) -> str:
     rate = sp["phy_errors_per_sec"]
     if rate is not None:
         title = f"{sp['phy_window_errors']:,} errors in {sp['phy_window_seconds']:.2f} s"
-        return f'<td title="{escape(title)}">{rate:,.0f}/s</td>'
+        word = f"{sp['phy_level']['label']} · " if sp.get("phy_level") else ""
+        return f'<td title="{escape(title)}">{escape(word)}{rate:,.0f}/s</td>'
     if sp.get("phy_not_measured"):
         return f'<td title="{escape(sp["phy_not_measured"])}">not measured</td>'
     return "<td></td>"
+
+
+def _noise_cell(sp: dict) -> str:
+    dbm = sp.get("noise_floor_dbm")
+    if dbm is None:
+        return ""
+    word = f"{sp['noise_level']['label']} · " if sp.get("noise_level") else ""
+    return escape(f"{word}{dbm} dBm")
 
 
 def _html_speaker_row(sp: dict) -> str:
@@ -250,6 +260,7 @@ def _html_speaker_row(sp: dict) -> str:
         f"<td>{escape(sp['connection_summary'] or '')}</td>"
         f"<td>{escape(sp['software_version'] or '')}</td>"
         f"{_phy_cell(sp)}"
+        f"<td>{_noise_cell(sp)}</td>"
         f"<td>{drop if drop is not None else ''}</td>"
         "</tr>"
     )

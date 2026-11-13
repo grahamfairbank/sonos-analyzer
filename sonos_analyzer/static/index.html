@@ -4,6 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sonos Analyzer</title>
+  <script>
+    // Follow the system unless the viewer picked Light or Dark on this computer.
+    try {
+      const saved = localStorage.getItem("theme");
+      if (saved === "light" || saved === "dark") document.documentElement.dataset.theme = saved;
+    } catch (e) {}
+  </script>
   <style>
     :root {
       color-scheme: light dark;
@@ -22,9 +29,12 @@
       --radius: 10px;
       --sig-poor: #cde2fb; --sig-weak: #86b6ef; --sig-fair: #3987e5; --sig-strong: #184f95;
       --sig-poor-ink: #1b1a17; --sig-weak-ink: #1b1a17; --sig-fair-ink: #ffffff; --sig-strong-ink: #ffffff;
+      /* Reading levels: green / yellow / orange / red, as in Sonos's own network matrix. */
+      --tone-good: #1e8a4c; --tone-fair: #b08f00; --tone-warn: #d4690b; --tone-bad: #c0392b;
+      --tint-good: #d8f0e0; --tint-fair: #f6edc2; --tint-warn: #fbdcc2; --tint-bad: #f6cfca;
     }
     @media (prefers-color-scheme: dark) {
-      :root {
+      :root:not([data-theme="light"]) {
         --bg: #131312;
         --surface: #1d1d1b;
         --border: #33322e;
@@ -39,8 +49,30 @@
         --info: #9c988d;
         --sig-poor: #0d366b; --sig-weak: #1c5cab; --sig-fair: #5598e7; --sig-strong: #b7d3f6;
         --sig-poor-ink: #ffffff; --sig-weak-ink: #ffffff; --sig-fair-ink: #131312; --sig-strong-ink: #131312;
+        --tone-good: #4fbf7f; --tone-fair: #e3c53d; --tone-warn: #f0913a; --tone-bad: #ef6b5c;
+        --tint-good: #1d4a2f; --tint-fair: #4a4114; --tint-warn: #573417; --tint-bad: #5a2620;
       }
     }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #131312;
+      --surface: #1d1d1b;
+      --border: #33322e;
+      --text: #eeece6;
+      --muted: #9c988d;
+      --accent: #eeece6;
+      --accent-text: #131312;
+      --high: #ef6b5c;
+      --medium: #e8a33d;
+      --low: #62a8e5;
+      --ok: #4fbf7f;
+      --info: #9c988d;
+      --sig-poor: #0d366b; --sig-weak: #1c5cab; --sig-fair: #5598e7; --sig-strong: #b7d3f6;
+      --sig-poor-ink: #ffffff; --sig-weak-ink: #ffffff; --sig-fair-ink: #131312; --sig-strong-ink: #131312;
+      --tone-good: #4fbf7f; --tone-fair: #e3c53d; --tone-warn: #f0913a; --tone-bad: #ef6b5c;
+      --tint-good: #1d4a2f; --tint-fair: #4a4114; --tint-warn: #573417; --tint-bad: #5a2620;
+    }
+    :root[data-theme="light"] { color-scheme: light; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -154,6 +186,37 @@
       .signal > div + div { border-left: 0; border-top: 1px solid var(--border); }
     }
 
+    .meter { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .meter svg { width: 16px; height: 13px; flex: none; }
+    .meter rect { fill: var(--border); }
+    .meter rect.on { fill: currentColor; }
+    .meter .word { color: var(--text); }
+    .meter.tone-muted .word { color: var(--muted); }
+    .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: currentColor; flex: none; }
+    .tone-good { color: var(--tone-good); } .tone-fair { color: var(--tone-fair); }
+    .tone-warn { color: var(--tone-warn); } .tone-bad { color: var(--tone-bad); } .tone-muted { color: var(--muted); }
+    .tint-good { background: var(--tint-good); } .tint-fair { background: var(--tint-fair); }
+    .tint-warn { background: var(--tint-warn); } .tint-bad { background: var(--tint-bad); }
+    .good-stroke { stroke: var(--tone-good); } .fair-stroke { stroke: var(--tone-fair); }
+    .warn-stroke { stroke: var(--tone-warn); } .bad-stroke { stroke: var(--tone-bad); }
+    .fill-good { background: var(--tone-good); } .fill-fair { background: var(--tone-fair); }
+    .fill-warn { background: var(--tone-warn); } .fill-bad { background: var(--tone-bad); }
+    table.matrix td[class^="tint-"] { color: var(--text); }
+    details.explain { margin-top: 12px; }
+    details.explain summary { cursor: pointer; padding: 12px 16px; font-weight: 600; font-size: 14px; }
+    details.explain .body { padding: 0 16px 14px; display: grid; gap: 12px; font-size: 14px; }
+    details.explain h3 { display: flex; align-items: center; gap: 10px; }
+    details.explain .scale { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+    .header-tools { float: right; display: flex; gap: 8px; align-items: center; }
+    .theme-switch { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+    .theme-switch button {
+      border: 0; border-radius: 0; background: transparent; color: var(--muted);
+      font-weight: 500; font-size: 13px; padding: 5px 11px;
+    }
+    .theme-switch button + button { border-left: 1px solid var(--border); }
+    .theme-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+
     [hidden] { display: none !important; }
     @media (max-width: 640px) { form { grid-template-columns: 1fr; } }
   </style>
@@ -161,7 +224,14 @@
 <body>
 <main>
   <header>
-    <button id="quit-button" class="button secondary" type="button" style="float: right" hidden>Quit Sonos Analyzer</button>
+    <div class="header-tools">
+      <div class="theme-switch" role="group" aria-label="Color theme">
+        <button type="button" data-theme-choice="auto" title="Follow your system's light or dark setting">Auto</button>
+        <button type="button" data-theme-choice="light">Light</button>
+        <button type="button" data-theme-choice="dark">Dark</button>
+      </div>
+      <button id="quit-button" class="button secondary" type="button" hidden>Quit Sonos Analyzer</button>
+    </div>
     <h1>Sonos Analyzer</h1>
     <p class="muted">Firmware, Wi-Fi, wiring and bonded-room health for the Sonos speakers on this network. Read-only: no settings on your speakers are changed. (Reading a radio's PHY error counter clears it, as it does for any reader.)</p>
   </header>
@@ -198,14 +268,42 @@
         <thead>
           <tr>
             <th>Room</th><th>Model</th><th>IP</th><th>Connection</th><th>Firmware</th><th>Trueplay</th>
-            <th class="num" title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors<br><span class="muted">per second</span></th>
-            <th class="num" title="Worst noise floor across the radio's receive chains">Noise floor</th>
+            <th title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors<br><span class="muted">per second</span></th>
+            <th title="Background radio noise; worst of the radio's receive chains">Noise floor</th>
           </tr>
         </thead>
         <tbody id="speakers"></tbody>
       </table>
       <p id="phy-method" class="muted table-note" hidden></p>
     </div>
+    <details class="card explain">
+      <summary>What these readings mean</summary>
+      <div class="body">
+        <div>
+          <h3><span id="ex-noise"></span>Noise floor</h3>
+          <p>The background radio noise where the speaker sits, like the hum in a room before anyone speaks. The quieter it is, the
+            easier it is for the speaker to hear your Wi-Fi. Readings are in dBm and are negative: <strong>lower (more negative) is quieter
+            and better</strong>. Nearby electronics and other wireless gear raise it.</p>
+          <p class="scale"><span>Quiet: −95 or lower</span><span>Some noise: −90 to −94</span><span>Noisy: −85 to −89</span><span>Very noisy: above −85</span></p>
+        </div>
+        <div>
+          <h3><span id="ex-signal"></span>Speaker-to-speaker signal</h3>
+          <p>How loudly each speaker's radio hears another, as the speakers report it. Sonos doesn't give a unit for this score;
+            <strong>higher is better</strong>. It describes how the speakers are placed relative to each other.</p>
+          <p class="scale"><span>Strong: 45 and up</span><span>Fair: 30–44</span><span>Weak: 18–29</span><span>Poor: under 18</span></p>
+        </div>
+        <div>
+          <h3><span id="ex-phy"></span>PHY errors per second</h3>
+          <p>Radio signals the speaker picked up but couldn't make sense of, like catching garbled words in a busy room. Every radio
+            hears some, so <strong>small numbers are normal</strong>: tens or a few hundred per second is everyday background. Only very large
+            numbers, far above your other speakers, point to interference or a weak spot. "Not in use" means the speaker is wired and its
+            radio isn't carrying audio, so the count doesn't affect playback.</p>
+          <p class="scale"><span>Normal: under 500/s</span><span>High: 500/s or more</span><span>Very high: far above the rest of your speakers (flagged in Findings)</span></p>
+        </div>
+        <p class="muted">The noise floor and signal bands and colors match the network matrix built into Sonos speakers. Sonos doesn't
+          grade PHY errors; those bands are this tool's guide.</p>
+      </div>
+    </details>
 
     <h2>Findings</h2>
     <div id="findings"></div>
@@ -227,11 +325,8 @@
           <div id="signal-detail"></div>
         </div>
         <div class="legend">
-          <span><span class="swatch sig-strong"></span>Strong (45+)</span>
-          <span><span class="swatch sig-fair"></span>Fair (30–44)</span>
-          <span><span class="swatch sig-weak"></span>Weak (18–29)</span>
-          <span><span class="swatch sig-poor"></span>Poor (under 18)</span>
-          <span>Thicker, darker lines are stronger. Hover or click a speaker to isolate it.</span>
+          <span id="legend-strong"></span><span id="legend-fair"></span><span id="legend-weak"></span><span id="legend-poor"></span>
+          <span>Higher is better; Sonos gives no unit for this score. Thicker lines are stronger. Hover or click a speaker to isolate it.</span>
         </div>
       </div>
       <div class="card table-wrap" style="margin-top: 12px">
@@ -297,6 +392,22 @@
 
   const SVG_NS = "http://www.w3.org/2000/svg";
   const BAND_LABEL = { strong: "Strong", fair: "Fair", weak: "Weak", poor: "Poor" };
+  const SIGNAL_LEVEL = {
+    strong: { bars: 4, label: "Strong", tone: "good" }, fair: { bars: 3, label: "Fair", tone: "fair" },
+    weak: { bars: 2, label: "Weak", tone: "warn" }, poor: { bars: 1, label: "Poor", tone: "bad" },
+  };
+  const toneOf = (link) => (link.level || SIGNAL_LEVEL[link.band] || {}).tone || "muted";
+
+  // Phone-style signal bars plus a plain word; more bars is better.
+  function meter(level, word = level.label) {
+    const heights = [4, 7, 10, 13];
+    const bars = svg("svg", { viewBox: "0 0 16 13", "aria-hidden": "true" },
+      heights.map((h, i) => svg("rect", { x: i * 4, y: 13 - h, width: 3, height: h, rx: 0.5, class: i < level.bars ? "on" : "" })));
+    return el("span", { className: `meter tone-${level.tone}` }, [bars, el("span", { className: "word", textContent: word })]);
+  }
+  function dotLabel(level) {
+    return el("span", { className: `meter tone-${level.tone}` }, [el("span", { className: "dot" }), el("span", { className: "word", textContent: level.label })]);
+  }
   const BAND_WIDTH = { strong: 5, fair: 3, weak: 1.75, poor: 1 };
 
   function svg(tag, attrs = {}, children = []) {
@@ -305,6 +416,12 @@
     node.append(...children);
     return node;
   }
+
+  for (const [band, range] of [["strong", "45+"], ["fair", "30–44"], ["weak", "18–29"], ["poor", "under 18"]])
+    $(`legend-${band}`).replaceChildren(meter(SIGNAL_LEVEL[band], `${SIGNAL_LEVEL[band].label} (${range})`));
+  $("ex-noise").replaceChildren(meter({ bars: 4, label: "", tone: "good" }, ""));
+  $("ex-signal").replaceChildren(meter({ bars: 3, label: "", tone: "fair" }, ""));
+  $("ex-phy").replaceChildren(dotLabel({ label: "", tone: "good" }));
 
   function renderSignal(connections) {
     const { nodes = [], links = [], excluded = [] } = connections || {};
@@ -335,8 +452,8 @@
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
       const path = svg("path", {
         d: `M${a.x},${a.y} Q${cx + (mx - cx) * 0.35},${cy + (my - cy) * 0.35} ${b.x},${b.y}`,
-        class: `link ${l.band}-stroke`, "stroke-width": BAND_WIDTH[l.band] || 1,
-      }, [svg("title", {}, [`${byIp[l.a].name} ↔ ${byIp[l.b].name}: ${l.strength} (${BAND_LABEL[l.band] || l.band})`])]);
+        class: `link ${toneOf(l)}-stroke`, "stroke-width": BAND_WIDTH[l.band] || 1,
+      }, [svg("title", {}, [`${byIp[l.a].name} ↔ ${byIp[l.b].name}: ${BAND_LABEL[l.band] || l.band} (${l.strength})`])]);
       path.link = l;
       return path;
     });
@@ -389,9 +506,9 @@
     function peerRow(name, link, title = "") {
       return el("div", { className: "peer", title }, [
         el("span", { className: "name", textContent: name }),
-        el("span", { className: "track" }, [el("div", { className: `bar sig-${link.band}`, style: `width: ${Math.min(100, (link.strength / 60) * 100)}%` })]),
+        el("span", { className: "track" }, [el("div", { className: `bar fill-${toneOf(link)}`, style: `width: ${Math.min(100, (link.strength / 60) * 100)}%` })]),
         el("span", { className: "value", textContent: Math.round(link.strength) }),
-        el("span", { className: "band", textContent: BAND_LABEL[link.band] || "" }),
+        el("span", { className: "band" }, [meter(link.level || SIGNAL_LEVEL[link.band])]),
       ]);
     }
     for (const group of nodeEls) {
@@ -416,8 +533,8 @@
         const l = strength[`${row.ip}|${col.ip}`];
         if (!l) return el("td", { className: "none", textContent: "–", title: `${row.name} and ${col.name} do not hear each other` });
         const hears = l.a === row.ip ? l.a_hears_b : l.b_hears_a, heard = l.a === row.ip ? l.b_hears_a : l.a_hears_b;
-        return el("td", { className: `sig-${l.band}`, textContent: Math.round(l.strength),
-          title: `${row.name} hears ${col.name} at ${hears}; ${col.name} hears ${row.name} at ${heard} (${BAND_LABEL[l.band]})` });
+        return el("td", { className: `tint-${toneOf(l)}`, textContent: Math.round(l.strength),
+          title: `${BAND_LABEL[l.band]}: ${row.name} hears ${col.name} at ${hears}; ${col.name} hears ${row.name} at ${heard}. Higher is better.` });
       }),
     ])));
 
@@ -431,9 +548,6 @@
   function render(report) {
     const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
     for (const f of report.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
-    const noisy = new Set(report.findings
-      .filter((f) => f.category === "wireless" && f.severity === "medium")
-      .flatMap((f) => f.affected_ips));
 
     $("generated").textContent = `Scanned ${new Date(report.generated_at).toLocaleString()}`;
     $("download-json").href = URL.createObjectURL(
@@ -484,10 +598,12 @@
         el("td", {}, [sp.display_version || sp.software_version || "—",
           el("span", { className: "sub", textContent: sp.display_version ? sp.software_version : "" })]),
         el("td", { className: sp.trueplay && sp.trueplay !== "not applicable" ? "" : "muted", textContent: sp.trueplay === "tuned" ? "Tuned" : sp.trueplay === "not tuned" ? "Not tuned" : sp.trueplay === "not applicable" ? "Not applicable" : "—" }),
-        el("td", { className: "num" + (noisy.has(sp.ip_address) && rate != null ? " medium" : ""),
-          title: phyTitle(sp),
-          textContent: rate == null ? (sp.phy_not_measured ? "not measured" : "—") : `${fmt(rate)}/s` }),
-        el("td", { className: "num", textContent: sp.noise_floor_dbm == null ? "—" : `${sp.noise_floor_dbm} dBm` }),
+        el("td", { title: phyTitle(sp) }, rate == null
+          ? [el("span", { className: "muted", textContent: sp.phy_not_measured ? "not measured" : "—" })]
+          : [sp.phy_level ? dotLabel(sp.phy_level) : "", el("span", { className: "sub", textContent: `${fmt(rate)} per second` })]),
+        el("td", {}, sp.noise_floor_dbm == null
+          ? [el("span", { className: "muted", textContent: "—" })]
+          : [sp.noise_level ? meter(sp.noise_level) : "", el("span", { className: "sub", textContent: `${sp.noise_floor_dbm} dBm` })]),
       ]);
       if (member) row.classList.add("member");
       if (next && next.room_id === sp.room_id) row.classList.add("has-members");
@@ -517,8 +633,8 @@
         : ["—"]),
       el("td", { className: "wrap" }, [chips(w.speakers.map((sp) => [
         sp.name,
-        sp.phy_errors_per_sec == null ? "" : `${fmt(sp.phy_errors_per_sec)}/s`,
-        noisy.has(sp.ip) ? "medium" : "",
+        sp.phy_errors_per_sec == null ? "" : `${sp.phy_level ? sp.phy_level.label + " · " : ""}${fmt(sp.phy_errors_per_sec)}/s`,
+        sp.phy_level && sp.phy_level.tone !== "good" ? `tone-${sp.phy_level.tone}` : "",
       ]))]),
     ])));
 
@@ -565,6 +681,24 @@
   });
 
   // Show the most recent scan after a reload.
+  // Theme: Auto follows the system; Light or Dark is remembered on this computer.
+  function applyTheme(choice) {
+    if (choice === "light" || choice === "dark") document.documentElement.dataset.theme = choice;
+    else delete document.documentElement.dataset.theme;
+    for (const b of document.querySelectorAll("[data-theme-choice]"))
+      b.setAttribute("aria-pressed", String(b.dataset.themeChoice === (choice || "auto")));
+  }
+  let savedTheme = "auto";
+  try { savedTheme = localStorage.getItem("theme") || "auto"; } catch (e) {}
+  applyTheme(savedTheme);
+  for (const b of document.querySelectorAll("[data-theme-choice]")) {
+    b.addEventListener("click", () => {
+      const choice = b.dataset.themeChoice;
+      try { choice === "auto" ? localStorage.removeItem("theme") : localStorage.setItem("theme", choice); } catch (e) {}
+      applyTheme(choice);
+    });
+  }
+
   fetch("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch(() => {});
 
   // Desktop app only: a Quit button, and a heartbeat so the app can tell the page is still open.

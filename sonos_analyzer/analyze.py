@@ -64,6 +64,7 @@ def analyze(snapshot: HouseholdSnapshot) -> AnalysisReport:
     speakers = sorted(snapshot.speakers.values(), key=_sort_key)
     rooms = _rooms(speakers)
 
+    outlier_ips = {sp.ip_address for sp in _phy_outliers(speakers)[0]}
     firmware_versions: dict[str, list[str]] = {}
     for sp in speakers:
         firmware_versions.setdefault(sp.software_version or "unknown", []).append(sp.ip_address)
@@ -86,13 +87,13 @@ def analyze(snapshot: HouseholdSnapshot) -> AnalysisReport:
         generated_at=datetime.now(timezone.utc).isoformat(),
         speaker_count=len(speakers),
         firmware_versions=firmware_versions,
-        speakers=[_speaker_to_dict(sp) for sp in speakers],
+        speakers=[_speaker_to_dict(sp, outlier_ips) for sp in speakers],
         findings=sorted(findings, key=_severity_rank),
         recommendations=list(dict.fromkeys(recommendations)),
         snapshot=snapshot,
         room_count=len(rooms),
         firmware=_firmware_summary(speakers),
-        wireless=_wireless_map(speakers),
+        wireless=_wireless_map(speakers, outlier_ips),
         connections=_connections(speakers),
     )
 
@@ -401,7 +402,7 @@ def _firmware_findings(
     if outliers:
         current = f"{lines['main']} (main line)"
         if lines["maintenance"]:
-            current += f" or {lines['maintenance']} (maintenance line)"
+            current += f" or {lines['maintenance']} (legacy-product line)"
         findings.append(
             Finding(
                 severity="medium",
@@ -557,7 +558,69 @@ RADIO_USE_LABEL = {
 }
 
 
-def _wireless_map(speakers: list[SpeakerDiagnostics]) -> list[dict]:
+def _phy_outliers(speakers: list[SpeakerDiagnostics]) -> tuple[list[SpeakerDiagnostics], float | None]:
+    """Radios carrying audio whose PHY error rate is far above the household's typical level."""
+    active = [sp for sp in speakers if _radio_use(sp) in {"wifi", "ht_link", "sonosnet"}]
+    wifi = [sp for sp in speakers if _radio_use(sp) == "wifi"]
+    # Compare like with like: speakers on home Wi-Fi against each other.
+    measured = [sp for sp in wifi if sp.phy_error_rate is not None]
+    if len(measured) < 3:
+        measured = [sp for sp in active if sp.phy_error_rate is not None]
+    if len(measured) < 3:
+        return [], None
+    median = statistics.median(sp.phy_error_rate for sp in measured)
+    threshold = max(PHY_RATE_MIN_PER_SEC, PHY_RATE_OUTLIER_FACTOR * median)
+    noisy = sorted(
+        (sp for sp in active if (sp.phy_error_rate or 0) >= threshold),
+        key=lambda sp: -(sp.phy_error_rate or 0),
+    )
+    return noisy, median
+
+
+# Plain-language levels for readers without a radio background. bars: 1-4, more is better.
+# tone: good (green), fair (yellow), warn (orange), bad (red), muted.
+# Noise floor and speaker-to-speaker signal use the bands and colors of the network matrix
+# built into Sonos speakers (/support/review). Sonos doesn't grade PHY errors; those
+# bands are this tool's guide.
+def _level(bars: int, label: str, tone: str) -> dict:
+    return {"bars": bars, "label": label, "tone": tone}
+
+
+def noise_level(dbm: int | None) -> dict | None:
+    """Background radio noise where the speaker sits; lower dBm is quieter."""
+    if dbm is None:
+        return None
+    if dbm <= -95:
+        return _level(4, "Quiet", "good")
+    if dbm <= -90:
+        return _level(3, "Some noise", "fair")
+    if dbm <= NOISE_FLOOR_ELEVATED_DBM:
+        return _level(2, "Noisy", "warn")
+    return _level(1, "Very noisy", "bad")
+
+
+def phy_level(sp: SpeakerDiagnostics, outlier_ips: set[str]) -> dict | None:
+    """How much garbled radio traffic the speaker hears, in plain words."""
+    if sp.phy_error_rate is None:
+        return None
+    if _radio_use(sp) == "idle":
+        return _level(0, "Not in use", "muted")
+    if sp.ip_address in outlier_ips:
+        return _level(1, "Very high", "bad")
+    if sp.phy_error_rate >= PHY_RATE_MIN_PER_SEC:
+        return _level(2, "High", "warn")
+    return _level(4, "Normal", "good")
+
+
+SIGNAL_LEVELS = {
+    "strong": _level(4, "Strong", "good"),
+    "fair": _level(3, "Fair", "fair"),
+    "weak": _level(2, "Weak", "warn"),
+    "poor": _level(1, "Poor", "bad"),
+}
+
+
+def _wireless_map(speakers: list[SpeakerDiagnostics], outlier_ips: set[str] = frozenset()) -> list[dict]:
     groups: dict[tuple, list[SpeakerDiagnostics]] = {}
     for sp in speakers:
         use = _radio_use(sp)
@@ -579,7 +642,9 @@ def _wireless_map(speakers: list[SpeakerDiagnostics]) -> list[dict]:
                         "name": _label(sp),
                         "ip": sp.ip_address,
                         "phy_errors_per_sec": _round_rate(sp.phy_error_rate),
+                        "phy_level": phy_level(sp, outlier_ips),
                         "noise_floor_dbm": _noise_floor(sp),
+                        "noise_level": noise_level(_noise_floor(sp)),
                     }
                     for sp in members
                 ],
@@ -637,17 +702,8 @@ def _wireless_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
             )
         )
 
-    # Compare like with like: speakers on home Wi-Fi against each other.
-    measured = [sp for sp in wifi if sp.phy_error_rate is not None]
-    if len(measured) < 3:
-        measured = [sp for sp in active if sp.phy_error_rate is not None]
-    if len(measured) >= 3:
-        median = statistics.median(sp.phy_error_rate for sp in measured)
-        threshold = max(PHY_RATE_MIN_PER_SEC, PHY_RATE_OUTLIER_FACTOR * median)
-        noisy = sorted(
-            (sp for sp in active if (sp.phy_error_rate or 0) >= threshold),
-            key=lambda sp: -(sp.phy_error_rate or 0),
-        )
+    noisy, median = _phy_outliers(speakers)
+    if median is not None:
         if noisy:
 
             def note(sp: SpeakerDiagnostics) -> str:
@@ -775,6 +831,7 @@ def _connections(speakers: list[SpeakerDiagnostics]) -> dict:
                     "b_hears_a": b_hears_a,
                     "strength": strength,
                     "band": _signal_band(strength),
+                    "level": SIGNAL_LEVELS.get(_signal_band(strength)),
                 }
             )
 
@@ -996,7 +1053,7 @@ def _severity_rank(finding: Finding) -> int:
     return {"high": 0, "medium": 1, "low": 2, "info": 3, "ok": 4}.get(finding.severity, 5)
 
 
-def _speaker_to_dict(sp: SpeakerDiagnostics) -> dict:
+def _speaker_to_dict(sp: SpeakerDiagnostics, outlier_ips: set[str] = frozenset()) -> dict:
     drop_ratio = _rx_drop_ratio(sp)
     freq = _active_freq(sp)
     return {
@@ -1021,6 +1078,7 @@ def _speaker_to_dict(sp: SpeakerDiagnostics) -> dict:
         "wifi_channel_mhz": freq,
         "wifi_mode": sp.wifi_mode,
         "noise_floor_dbm": _noise_floor(sp),
+        "noise_level": noise_level(_noise_floor(sp)),
         "trueplay": _trueplay(sp),
         "room_calibration_state": sp.room_calibration_state,
         "boot_seq": sp.boot_seq,
@@ -1034,6 +1092,7 @@ def _speaker_to_dict(sp: SpeakerDiagnostics) -> dict:
         # From the support review; covers an unknown period since anything last read the counter.
         "phy_errors_unknown_window": sp.phy_errors,
         "phy_errors_per_sec": _round_rate(sp.phy_error_rate),
+        "phy_level": phy_level(sp, outlier_ips),
         "phy_window_errors": sp.phy_window_errors,
         "phy_window_seconds": round(sp.phy_window_seconds, 2) if sp.phy_window_seconds is not None else None,
         "phy_not_measured": sp.phy_not_measured,
