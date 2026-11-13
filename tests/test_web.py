@@ -174,6 +174,26 @@ class ServerTests(unittest.TestCase):
             resp, data = self.request("POST", "/api/history/clear", b"{}", {"Content-Type": "application/json"})
             self.assertEqual(json.loads(data)["cleared"], 2)
 
+    def test_app_key_required(self):
+        with mock.patch.object(web, "APP_KEY", "launch-key"):
+            self.assertEqual(self.request("GET", "/")[0].status, 200)
+            self.assertEqual(self.request("GET", "/healthz")[0].status, 200)
+            resp, data = self.request("GET", "/api/app")
+            self.assertTrue(json.loads(data)["key_required"])
+            resp, data = self.request("GET", "/api/report")
+            self.assertEqual(resp.status, 401)
+            self.assertTrue(json.loads(data)["key_required"])
+            self.assertEqual(self.request("GET", "/api/report", headers={"X-Analyzer-Key": "wrong"})[0].status, 401)
+            self.assertEqual(self.request("GET", "/report.html")[0].status, 401)
+            self.assertEqual(self.scan()[0].status, 401)
+            self.collect.assert_not_called()
+            self.assertEqual(self.scan(**{"X-Analyzer-Key": "launch-key"})[0].status, 200)
+            self.assertEqual(self.request("GET", "/api/report", headers={"X-Analyzer-Key": "launch-key"})[0].status, 200)
+
+    def test_no_key_in_server_mode(self):
+        self.assertEqual(self.request("GET", "/api/report")[0].status, 404)
+        self.assertFalse(json.loads(self.request("GET", "/api/app")[1])["key_required"])
+
     def test_quit_only_in_app_mode(self):
         self.assertEqual(self.request("POST", "/api/quit", b"{}", {"Content-Type": "application/json"})[0].status, 404)
         quit_called = threading.Event()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hmac
 import ipaddress
 import json
 import os
@@ -45,6 +46,11 @@ SCAN_INTERVAL_MINUTES = 0.0
 
 # Set by the desktop app (sonos_analyzer.app): adds a Quit button to the page.
 APP_MODE = False
+# Desktop app: a random key made at launch and put in the link the app opens. Every request
+# except the page itself must carry it, so other accounts on the same computer can't use the app.
+APP_KEY: str | None = None
+KEY_HEADER = "X-Analyzer-Key"
+PUBLIC_PATHS = {"/", "/index.html", "/healthz", "/api/app"}
 on_quit = None
 last_activity = time.monotonic()
 
@@ -207,6 +213,19 @@ class Handler(BaseHTTPRequestHandler):
         )
         return True
 
+    def _refuse_missing_key(self, path: str) -> bool:
+        """Desktop app: refuse requests without this launch's key; True when refused."""
+        if APP_KEY is None or path in PUBLIC_PATHS:
+            return False
+        if hmac.compare_digest((self.headers.get(KEY_HEADER) or "").encode(), APP_KEY.encode()):
+            return False
+        self._send_json(
+            HTTPStatus.UNAUTHORIZED,
+            {"error": "Open Sonos Analyzer from the browser tab the app opened, or quit and start the app again.",
+             "key_required": True},
+        )
+        return True
+
     def _refuse_cross_origin(self) -> bool:
         """For state-changing requests, any Origin must be this page's own; True when refused.
 
@@ -224,13 +243,18 @@ class Handler(BaseHTTPRequestHandler):
         global last_activity
         if self._refuse_foreign_host():
             return
-        last_activity = time.monotonic()
         path = self.path.split("?", 1)[0]
+        if self._refuse_missing_key(path):
+            return
+        last_activity = time.monotonic()
         if path in ("/", "/index.html"):
             page = resources.files("sonos_analyzer").joinpath("static/index.html").read_bytes()
             self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
         elif path == "/api/app":
-            self._send_json(HTTPStatus.OK, {"app": APP_MODE, "version": __version__, "monitoring": monitoring_status()})
+            self._send_json(
+                HTTPStatus.OK,
+                {"app": APP_MODE, "version": __version__, "key_required": APP_KEY is not None, "monitoring": monitoring_status()},
+            )
         elif path == "/healthz":
             self._send_json(HTTPStatus.OK, {"status": "ok", "version": __version__})
         elif path == "/api/report":
@@ -255,8 +279,10 @@ class Handler(BaseHTTPRequestHandler):
         global last_activity
         if self._refuse_foreign_host() or self._refuse_cross_origin():
             return
-        last_activity = time.monotonic()
         path = self.path.split("?", 1)[0]
+        if self._refuse_missing_key(path):
+            return
+        last_activity = time.monotonic()
         if path == "/api/quit" and APP_MODE and on_quit:
             # JSON only, like /api/analyze, so other sites cannot stop the app.
             if self.headers.get_content_type() != "application/json":

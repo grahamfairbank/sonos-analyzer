@@ -98,7 +98,7 @@ jobs:
 
       - name: Smoke test
         run: |
-          "$BIN" --no-browser --port 8400 --idle-timeout 0 &
+          "$BIN" --no-browser --port 8400 --idle-timeout 0 > app.log 2>&1 &
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:8400/api/app && break
             sleep 1
@@ -106,7 +106,12 @@ jobs:
           # Not piped into grep -q: grep exits early, curl then fails writing (exit 23).
           page=$(curl -sf http://127.0.0.1:8400/)
           grep -q "Sonos Analyzer" <<< "$page"
-          curl -sf -X POST -H "Content-Type: application/json" -d "{}" http://127.0.0.1:8400/api/quit
+          # The app's link carries this launch's key; requests without it must be refused.
+          key=$(grep -o 'key=[A-Za-z0-9_-]*' app.log | head -1 | cut -d= -f2)
+          test -n "$key"
+          status=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" -d "{}" http://127.0.0.1:8400/api/quit)
+          test "$status" = 401
+          curl -sf -X POST -H "Content-Type: application/json" -H "X-Analyzer-Key: $key" -d "{}" http://127.0.0.1:8400/api/quit
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -120,6 +125,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Signed build provenance for each download.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -131,6 +139,10 @@ jobs:
           rm -f SHA256SUMS.txt
           sha256sum SonosAnalyzer-* > SHA256SUMS.txt
           cat SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: out/SonosAnalyzer-*
+
       - name: Attach to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

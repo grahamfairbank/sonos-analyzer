@@ -20,7 +20,7 @@ The reviewer read every file, compiled the package, ran the web server on 127.0.
 | F5 | Medium | Desktop build jobs held write access to releases | **Fixed.** Build jobs are read-only; only the job that attaches files can write. PyInstaller is pinned to 6.22.3. |
 | F6 | Medium | Negative or invalid `Content-Length`, and no connection timeout | **Fixed.** Missing, negative and non-numeric lengths are rejected with 411/400, and idle connections are dropped after 30 seconds. |
 | F7 | Medium | On Windows the desktop app could share a port another program was using | **Fixed** (not yet confirmed on Windows). The app binds without `SO_REUSEADDR` on Windows, so a busy port is skipped. |
-| F8 | Low | Actions pinned by tag; no checksums or provenance | **Partly fixed.** Every action is pinned to a commit SHA, with Dependabot to keep them current; releases now include `SHA256SUMS.txt`. Still open: pinning the base image by digest, build provenance attestations, and Developer ID signing and notarization for the Mac app. |
+| F8 | Low | Actions pinned by tag; no checksums or provenance | **Fixed except signing.** Every action is pinned to a commit SHA and the base image by digest, with Dependabot to keep them current; releases include `SHA256SUMS.txt`, and from 0.4.0 the image and every download have signed build provenance attestations (`gh attestation verify`). Developer ID signing and notarization for the Mac app (and Windows code signing) are deliberately out of scope for now: they need paid certificates. |
 | F9 | Low | Unlimited discovered addresses could stall a scan | **Fixed.** Discovery stops after 64 speakers. |
 | F10 | Low | `WifiEnabled="0"` was dropped when merging data | **Fixed.** Known `False` values now fill unknowns, and the radio state prefers the speaker's own setting. |
 | F11 | Low | Off-network hint assumed /24 networks | **Fixed (wording).** The hint now says the speakers *may* be on a different network. |
@@ -28,7 +28,7 @@ The reviewer read every file, compiled the package, ran the web server on 127.0.
 | F13 | Low | Firmware "older line" could hide a missed update | **Fixed.** Models are compared by model number; a speaker whose model can't be read is marked "Model unknown" instead of being guessed; the finding is worded as a likelihood. |
 | F14 | Low | Speaker names could inject terminal escape codes | **Fixed.** Control characters are stripped from speaker-supplied text and error messages. |
 | F15 | Info | Docs and release hygiene | **Fixed:** scan time is "about 10 seconds" everywhere; the Mac app uses a numeric `CFBundleShortVersionString`; addresses in 100.64.0.0/10 (shared address space) are allowed. `docs/how-it-works.svg` was a local draft and is not part of the repository. |
-| F16 | Info | Any local account can reach the desktop app's port | **Accepted for now.** The `Host` check (F1) closes the website route; protecting against other local accounts on a shared computer would need a per-launch token and is planned. |
+| F16 | Info | Any local account can reach the desktop app's port | **Fixed in 0.4.0.** The desktop app makes a random key at each launch and opens the browser with it; every request except the page itself must carry it, so other accounts on the same computer get "use the tab the app opened" instead of the data. Server and Docker installs are unchanged (no login; keep them on a trusted network). |
 
 ## Original report
 

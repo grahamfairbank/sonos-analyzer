@@ -66,7 +66,8 @@ The app keeps a short history of your scans (30 days, a few small files) so each
 
 | Symptom | What to check |
 |---|---|
-| Browser doesn't open | Open `http://127.0.0.1:8400` yourself. If another program uses port 8400, the app picks the next free port (8401, 8402…); on Windows, the black window shows the address. |
+| Browser doesn't open | On Windows, copy the full address from the black window (it includes `?key=…`) into your browser. On a Mac, quit and open the app again. If another program uses port 8400, the app picks the next free port (8401, 8402…). |
+| "This page needs the link Sonos Analyzer opened" | Each time the app starts it makes a new key and opens the browser with it, so other people using this computer can't see your results. Use the tab the app opened, or quit and start the app again. |
 | "No Sonos speakers discovered" | Type one speaker's IP address and scan again. On a Mac, check **Local Network** access is on (see above). |
 | "Could not read diagnostics from any speaker" | The laptop cannot reach the speakers: check it's on the same network, not a guest Wi-Fi, and that any VPN is off. |
 | Antivirus quarantines the Windows file | Unsigned apps built this way are sometimes flagged by mistake. Restore it if you trust the source, or [run it from source with Python](#run-from-source-with-python) instead. |
@@ -100,6 +101,14 @@ Each release also includes `SHA256SUMS.txt`. To check a download matches what Gi
 
 - **Windows (PowerShell):** `Get-FileHash .\SonosAnalyzer-0.4.0-beta.2-windows-x64.exe`
 - **Mac (Terminal):** `shasum -a 256 SonosAnalyzer-0.4.0-beta.2-macos-universal.zip`
+
+From version 0.4.0, each download also has a signed build record (a GitHub "attestation") showing it was built by this repository's workflow from the tagged source. With the [GitHub CLI](https://cli.github.com/) installed, check a file with:
+
+```
+gh attestation verify SonosAnalyzer-0.4.0-windows-x64.exe --repo grahamfairbank/sonos-analyzer
+```
+
+The downloads aren't signed with a Microsoft or Apple developer certificate, which is why Windows and macOS ask before opening them.
 
 The project has had an [independent security review](reviews/2026-11-12-fable-review.md); the findings are listed there with what was fixed.
 

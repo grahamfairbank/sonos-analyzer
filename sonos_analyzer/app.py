@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import secrets
 import socket
 import sys
 import threading
@@ -58,7 +59,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     server = _bind(args.port)
-    url = f"http://127.0.0.1:{server.server_address[1]}/"
+    web.APP_KEY = secrets.token_urlsafe(24)
+    url = f"http://127.0.0.1:{server.server_address[1]}/?key={web.APP_KEY}"
 
     web.APP_MODE = True
     # History in the user's app-data folder; no background scans (the app scans while you use it).

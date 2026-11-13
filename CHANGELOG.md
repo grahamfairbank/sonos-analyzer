@@ -27,6 +27,9 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ### Security
 
+- Desktop app: a random key is made at each launch and passed in the link the app opens; requests without it are refused, so other accounts on a shared computer can't read results, scan or quit the app (review F16, [#3](https://github.com/grahamfairbank/sonos-analyzer/issues/3)).
+- Verifiable builds: the Docker base image is pinned by digest, and the image and every desktop download get signed build provenance attestations (`gh attestation verify`) (review F8, [#4](https://github.com/grahamfairbank/sonos-analyzer/issues/4)).
+- SECURITY.md, and private vulnerability reporting turned on for the repository ([#6](https://github.com/grahamfairbank/sonos-analyzer/issues/6)).
 - Only RFC 1918 private ranges and 100.64.0.0/10 are contacted. Python's private-address test also accepted documentation and reserved ranges.
 
 ### Fixed
@@ -35,6 +38,7 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ### Documentation
 
+- Redrawn "How it works" diagram for the current design, shown at the top of the README ([#7](https://github.com/grahamfairbank/sonos-analyzer/issues/7)).
 - README: how to use the analyzer behind a reverse proxy.
 
 ## [0.4.0-beta.2] - 2026-11-12

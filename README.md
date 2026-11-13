@@ -6,6 +6,8 @@ This is a fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/so
 
 Uses the same diagnostic endpoints Sonos exposes locally (`/support/review`, UPnP zone topology). **No cloud account required.** Your speakers must be reachable on the same network as the machine running this tool.
 
+![How Sonos Analyzer works: four ways in, five steps from finding speakers to the results page, scan history, and safeguards](docs/how-it-works.svg)
+
 ## Get started
 
 Pick the setup that matches what you have:
@@ -182,6 +184,8 @@ sonos-analyzer --ips 192.168.1.165,192.168.1.89,192.168.1.193 \
 ## Security and reviews
 
 The analyzer only reads from speakers, and only contacts private IPv4 addresses on port 1400, never following redirects. The web UI has no login: on a server, keep it on a trusted LAN; the desktop app and the Docker Desktop setup only listen on the computer itself.
+
+To report a security problem privately, see [SECURITY.md](SECURITY.md).
 
 Independent reviews and what was done about each finding:
 

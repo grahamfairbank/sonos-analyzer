@@ -256,7 +256,7 @@
       <span id="generated" class="muted"></span>
       <span class="actions">
         <a id="download-json" class="button secondary" download="sonos-report.json">Download JSON</a>
-        <a class="button secondary" href="/report.html">Download HTML</a>
+        <a id="download-html" class="button secondary" href="/report.html">Download HTML</a>
       </span>
     </div>
     <p id="monitoring" class="muted table-note" style="margin: 8px 2px 0"></p>
@@ -365,6 +365,22 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
+
+  // Desktop app: the link it opens carries a key for this launch. Keep it for this browser
+  // (per port), take it out of the address bar, and send it with every request.
+  let apiKey = new URLSearchParams(location.search).get("key");
+  try {
+    if (apiKey) localStorage.setItem("analyzerKey", apiKey);
+    else apiKey = localStorage.getItem("analyzerKey");
+  } catch (e) {}
+  if (location.search) history.replaceState(null, "", location.pathname);
+  function api(url, options = {}) {
+    const headers = { ...(options.headers || {}), ...(apiKey ? { "X-Analyzer-Key": apiKey } : {}) };
+    return fetch(url, { ...options, headers }).then((resp) => {
+      if (resp.status === 401) showError("This page needs the link Sonos Analyzer opened. Close this tab and use the browser tab the app opened, or quit and start the app again.");
+      return resp;
+    });
+  }
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
   const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: legacy-product line", behind: "Missed an update" };
   const fmt = (n) => Math.round(n).toLocaleString();
@@ -579,7 +595,7 @@
     const clear = el("button", { type: "button", className: "button secondary", textContent: "Clear history", style: "margin-left: 10px" });
     clear.addEventListener("click", async () => {
       if (!confirm("Delete the saved scan history on this computer? Changes are tracked again from the next scan.")) return;
-      const resp = await fetch("/api/history/clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      const resp = await api("/api/history/clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       clear.textContent = resp.ok ? "History cleared" : "Couldn't clear history";
       clear.disabled = true;
     });
@@ -711,7 +727,7 @@
     button.textContent = "Scanning… about 10 s";
     $("error").hidden = true;
     try {
-      const resp = await fetch("/api/analyze", {
+      const resp = await api("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ips, discover_timeout: Number($("timeout").value) || 3 }),
@@ -723,7 +739,7 @@
         const started = Date.now();
         while (Date.now() - started < 60000) {
           await new Promise((r) => setTimeout(r, 2000));
-          const latest = await fetch("/api/report").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          const latest = await api("/api/report").then((r) => (r.ok ? r.json() : null)).catch(() => null);
           if (latest && latest.generated_at !== lastGenerated) { render(latest); break; }
         }
       } else if (!resp.ok) {
@@ -737,6 +753,17 @@
       button.disabled = false;
       button.textContent = "Scan network";
     }
+  });
+
+  // The HTML report download also needs the key, so fetch it and save it from here.
+  $("download-html").addEventListener("click", async (event) => {
+    if (!apiKey) return;  // server mode: the plain link works
+    event.preventDefault();
+    const resp = await api("/report.html");
+    if (!resp.ok) return;
+    const link = el("a", { href: URL.createObjectURL(await resp.blob()), download: "sonos-report.html" });
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 10000);
   });
 
   // Show the most recent scan after a reload.
@@ -758,7 +785,7 @@
     });
   }
 
-  fetch("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch(() => {});
+  api("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch(() => {});
 
   // Desktop app only: a Quit button, and a heartbeat so the app can tell the page is still open.
   fetch("/api/app").then((r) => r.json()).then(({ app }) => {
@@ -766,7 +793,7 @@
     $("quit-button").hidden = false;
     setInterval(() => fetch("/healthz").catch(() => {}), 60000);
     $("quit-button").addEventListener("click", async () => {
-      await fetch("/api/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
+      await api("/api/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
       document.querySelector("main").replaceChildren(el("header", {}, [
         el("h1", { textContent: "Sonos Analyzer has stopped" }),
         el("p", { className: "muted", textContent: "You can close this tab. Open the app again to run another scan." }),
