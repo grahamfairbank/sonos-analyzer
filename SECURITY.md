@@ -28,6 +28,6 @@ Problems in Sonos speakers or the Sonos app should go to Sonos. Problems in the 
 
 ## How the analyzer limits its own reach
 
-- It only reads from speakers, and only contacts private IPv4 addresses (10.x, 172.16-31.x, 192.168.x and 100.64.x) on port 1400. It never follows redirects and caps the size of each response.
+- It only reads from speakers, and only contacts private IPv4 addresses (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and 100.64.0.0/10) on port 1400. It never follows redirects and caps the size of each response.
 - The web UI has no login. It refuses host names it doesn't know (to block DNS rebinding) and cross-site requests. On a server, keep it on a trusted network; the desktop app and the Docker Desktop setup listen only on the computer itself.
 - Independent reviews and what was done about each finding are in [docs/reviews](docs/reviews).

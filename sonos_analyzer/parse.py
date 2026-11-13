@@ -176,25 +176,30 @@ def _parse_zone_member(member: ET.Element, coordinator: str, group_id: str) -> S
     if not ip:
         return None
 
-    uuid = attrib.get("UUID", "")
-    channel_map = attrib.get("ChannelMapSet", "")
-    ht_map = attrib.get("HTSatChanMapSet", "")
+    # Every attribute is speaker-supplied: strip control characters (as for review text).
+    def attr(name: str, default: str = "") -> str:
+        return clean_text(attrib.get(name, default))
+
+    uuid = attr("UUID")
+    channel_map = attr("ChannelMapSet")
+    ht_map = attr("HTSatChanMapSet")
+    freq = attr("ChannelFreq")
     speaker = SpeakerDiagnostics(
-        zone_name=clean_text(attrib.get("ZoneName", ip)),
+        zone_name=attr("ZoneName", ip),
         ip_address=ip,
         local_uid=uuid,
-        software_version=attrib.get("SoftwareVersion", ""),
-        connection_type_code=attrib.get("ConnectionType", ""),
-        wifi_channel_mhz=attrib.get("ChannelFreq", ""),
+        software_version=attr("SoftwareVersion"),
+        connection_type_code=attr("ConnectionType"),
+        wifi_channel_mhz=freq if re.fullmatch(r"[0-9]{1,5}", freq) else "",
         behind_wifi_extender=attrib.get("BehindWifiExtender", "0") == "1",
-        room_calibration_state=attrib.get("RoomCalibrationState", ""),
-        boot_seq=attrib.get("BootSeq", ""),
+        room_calibration_state=attr("RoomCalibrationState"),
+        boot_seq=attr("BootSeq"),
         airplay_enabled=attrib.get("AirPlayEnabled", "0") == "1",
         is_invisible=attrib.get("Invisible", "0") == "1",
         channel_map_set=channel_map,
         ht_sat_chan_map_set=ht_map,
-        coordinator_uid=coordinator,
-        group_id=group_id,
+        coordinator_uid=clean_text(coordinator),
+        group_id=clean_text(group_id),
         ethernet_link=attrib.get("EthLink", "0") == "1",
     )
     if "WifiEnabled" in attrib:

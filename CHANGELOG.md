@@ -4,6 +4,10 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ## [Unreleased]
 
+Includes the fixes from an [independent Fable review](docs/reviews/2026-11-13-fable-review.md) of the release candidate (R1 to R14).
+
+**Upgrading a Docker server:** background scans are on by default (every 15 minutes). Set `SONOS_ANALYZER_SCAN_INTERVAL=0` to turn them off. The `docker run` commands now include `-v sonos-analyzer-data:/data` to keep the scan history across updates, and the laptop (Docker Desktop) commands also turn background scans off.
+
 ### Added
 
 - Automated tests for parsing, analysis, speaker requests and the web server's protections, using a made-up household in the speakers' real response formats; they run on every push and pull request on Linux, Windows and macOS ([#2](https://github.com/grahamfairbank/sonos-analyzer/issues/2)).
@@ -27,6 +31,7 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ### Security
 
+- Review fixes: a damaged history file can no longer make scans fail (R1); laptops don't scan in the background, and servers stop reusing remembered speakers after three failed rounds (R2); history files are private to the account (R10); responses forbid framing and send no referrer (R10); topology text is cleaned of control characters (R11); desktop builds use Python 3.14.10 and hash-pinned build tools (R7); manual desktop builds must run from the release tag so build provenance names the source built (R8).
 - Desktop app: a random key is made at each launch and passed in the link the app opens; requests without it are refused, so other accounts on a shared computer can't read results, scan or quit the app (review F16, [#3](https://github.com/grahamfairbank/sonos-analyzer/issues/3)).
 - Verifiable builds: the Docker base image is pinned by digest, and the image and every desktop download get signed build provenance attestations (`gh attestation verify`) (review F8, [#4](https://github.com/grahamfairbank/sonos-analyzer/issues/4)).
 - SECURITY.md, and private vulnerability reporting turned on for the repository ([#6](https://github.com/grahamfairbank/sonos-analyzer/issues/6)).
@@ -34,6 +39,10 @@ All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.
 
 ### Fixed
 
+- Firmware: a second version line is called Sonos's legacy-product line only when it shares the main release; otherwise it's "older line, not confirmed current" (review R3).
+- Scan history follows each speaker across scans it missed, keeps missing speakers listed with when they were last seen, and treats sleeping portables as informational (R4).
+- The interface errors finding covers Ethernet on wired speakers only, and needs at least 10,000 packets to rate (R5).
+- Odd numbers reported by a device can no longer fail a scan (R6).
 - Scans were refused with "Cross-origin requests are not allowed" when the web UI is served over HTTPS by a reverse proxy (TLS offload). An `https://` origin for the same host name is now accepted as well as `http://`. Thanks to @wimmme ([#1](https://github.com/grahamfairbank/sonos-analyzer/pull/1)).
 
 ### Documentation

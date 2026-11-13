@@ -5,6 +5,10 @@ updates:
     directory: /
     schedule:
       interval: monthly
+  - package-ecosystem: pip
+    directory: /packaging
+    schedule:
+      interval: monthly
   - package-ecosystem: docker
     directory: /
     schedule:

@@ -93,6 +93,8 @@ This runs exactly the same app as the download, from Python files you can read f
 
    The analyzer opens in your browser, just like the downloaded app. On a Mac, allow **Terminal** to find devices on local networks if asked. Press Ctrl+C in the terminal, or **Quit** on the page, to stop it.
 
+   On Linux the same command works, but the link with the app's key is passed to the browser in a way other accounts on the computer can see; on a shared Linux machine, use the Docker setup instead.
+
 ## How the ready-made app is built
 
 The download is this same Python code bundled with its own copy of Python by [PyInstaller](https://pyinstaller.org/). GitHub Actions builds it from the release's tagged source for Windows and as one universal Mac app (Apple silicon and Intel), checks that each build starts, and attaches the files to the release. The [build workflow](../.github/workflows/desktop-build.yml) and every [build log](https://github.com/grahamfairbank/sonos-analyzer/actions/workflows/desktop-build.yml) are public.

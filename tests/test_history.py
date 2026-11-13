@@ -97,9 +97,11 @@ class CompareTests(unittest.TestCase):
         gone = second["speakers"].pop(den)
         second["speakers"]["RINCON_NEW"] = {**gone, "ip": "192.168.50.77", "name": "Attic"}
         changes = history.compare([self.first], second)
-        self.assertEqual(changes["missing"], [den])
+        self.assertEqual(changes["missing"], {den: self.first["scanned_at"]})
         self.assertEqual(changes["new"], ["RINCON_NEW"])
-        self.assertEqual(finding(analyze(snapshot(), changes), "missing since the last scan").severity, "medium")
+        f = finding(analyze(snapshot(), changes), "speaker(s) missing")
+        self.assertEqual(f.severity, "medium")
+        self.assertIn("not seen since 2026-11-13 12:00 UTC", f.affected[0]["note"])
 
     def test_coordinator_change(self):
         kitchen = next(c for c, m in self.first["groups"].items())
@@ -151,9 +153,6 @@ class DefaultDirTests(unittest.TestCase):
             self.assertEqual(history.default_dir(), Path("/data"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class StpRootTests(unittest.TestCase):
     STP = ("br0\n bridge id\t\t{me}\n designated root\t{root}\n\n"
@@ -191,3 +190,7 @@ class StpRootTests(unittest.TestCase):
         f = finding(analyze(self.household_with_root(roots[-1]), changes), "spanning-tree root changed")
         self.assertEqual(f.severity, "low")
         self.assertIn("BPDU", f.recommendation)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -5,11 +5,9 @@ name: Build desktop app
 on:
   release:
     types: [published]
+  # Manual runs must be started from the release tag (gh workflow run desktop-build.yml --ref vX.Y.Z),
+  # so the code built and the commit named in the build provenance are the same.
   workflow_dispatch:
-    inputs:
-      tag:
-        description: Release tag to attach the builds to
-        required: true
 
 # Build jobs run third-party build tools, so they only get read access;
 # the attach job alone can write to the release.
@@ -17,7 +15,7 @@ permissions:
   contents: read
 
 env:
-  TAG: ${{ github.event.release.tag_name || inputs.tag }}
+  TAG: ${{ github.event.release.tag_name || github.ref_name }}
 
 jobs:
   build:
@@ -36,31 +34,35 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Require a release tag
+        if: github.ref_type != 'tag' && github.event_name != 'release'
+        run: |
+          echo "Start this workflow from a release tag: gh workflow run desktop-build.yml --ref vX.Y.Z" >&2
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ env.TAG }}
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: runner.os == 'Windows'
         with:
-          python-version: "3.12"
+          python-version: "3.14.10"
 
       # A universal app needs a universal Python: python.org's universal2 installer, pinned by hash.
       - name: Install universal2 Python (macOS)
         if: runner.os == 'macOS'
         env:
-          PY_PKG: python-3.12.10-macos11.pkg
-          PY_SHA256: 8373e58da4ea146b3eb1c1f9834f19a319440b6b679b06050b1f9ee3237aa8e4
+          PY_PKG: python-3.14.10-macos11.pkg
+          PY_SHA256: 286c7018aa2730f6747ca433dccdc2b31be45f078a9ea0ffa44d5f06368fd2d7
         run: |
-          curl -sSfL -o "$RUNNER_TEMP/$PY_PKG" "https://www.python.org/ftp/python/3.12.10/$PY_PKG"
+          curl -sSfL -o "$RUNNER_TEMP/$PY_PKG" "https://www.python.org/ftp/python/3.14.10/$PY_PKG"
           echo "$PY_SHA256  $RUNNER_TEMP/$PY_PKG" | shasum -a 256 -c -
           sudo installer -pkg "$RUNNER_TEMP/$PY_PKG" -target /
-          PY=/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+          PY=/Library/Frameworks/Python.framework/Versions/3.14/bin/python3.14
           lipo -archs "$PY"
           "$PY" -m venv "$RUNNER_TEMP/venv"
           echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
 
-      - run: python -m pip install pyinstaller==6.22.3
+      - run: python -m pip install --require-hashes -r packaging/requirements-build.txt
 
       - name: Build (Windows)
         if: runner.os == 'Windows'

@@ -39,7 +39,7 @@ Both routes need one command typed into a terminal. To open one:
 Paste this into the terminal and press Enter:
 
 ```bash
-docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 -v sonos-analyzer-data:/data --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
+docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 -v sonos-analyzer-data:/data -e SONOS_ANALYZER_SCAN_INTERVAL=0 --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
 ```
 
 Docker downloads the image (about 45 MB) and starts it. It then appears as **sonos-analyzer** in the **Containers** list in Docker Desktop, where you can stop, start and delete it without the terminal.
@@ -82,6 +82,10 @@ Use **Download JSON** or **Download HTML** to save the results, for example to a
 
 The page is only reachable from the laptop itself (`127.0.0.1`), because it has no login. Keep it that way on customer and public networks.
 
+### Scan history
+
+Each scan is saved (30 days, small files in the `sonos-analyzer-data` Docker volume) so the next scan can show what changed: missing speakers, restarts, IP and firmware changes. On a laptop the analyzer only scans when you press **Scan network**; the commands above turn off the background scans a server uses, because a laptop moves between networks. **Clear history** on the page deletes the saved scans, and removing the volume (below) deletes them for good.
+
 ## Day-to-day
 
 Stopping, starting and removing work the same for both routes from the **Containers** list in Docker Desktop. The container starts again by itself whenever Docker Desktop starts, until you stop it, so stop it when you're done if you don't want it running.
@@ -91,7 +95,7 @@ Stopping, starting and removing work the same for both routes from the **Contain
 | Stop | `docker stop sonos-analyzer` | `docker compose -f docker-compose.desktop.yml down` |
 | Start again | `docker start sonos-analyzer` | `docker compose -f docker-compose.desktop.yml up -d` |
 | Update to the latest version | `docker rm -f sonos-analyzer`, `docker pull ghcr.io/grahamfairbank/sonos-analyzer:latest`, then the [run command](#easy-route-ready-built-image) again | Download the latest ZIP (or `git pull`), then `docker compose -f docker-compose.desktop.yml up -d --build` |
-| Remove completely | `docker rm -f sonos-analyzer` and `docker rmi ghcr.io/grahamfairbank/sonos-analyzer:latest` | `docker compose -f docker-compose.desktop.yml down --rmi local` |
+| Remove completely | `docker rm -f sonos-analyzer`, `docker rmi ghcr.io/grahamfairbank/sonos-analyzer:latest` and `docker volume rm sonos-analyzer-data` | `docker compose -f docker-compose.desktop.yml down --rmi local -v` |
 
 ## Troubleshooting
 

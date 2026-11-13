@@ -16,6 +16,8 @@ PHY_RATE_MIN_PER_SEC = 500
 NOISE_FLOOR_ELEVATED_DBM = -85
 RX_DROP_RATIO_PCT = 20
 INTERFACE_ERROR_RATIO_PCT = 0.01
+# Below this many packets an error rate means little (one error in 40 packets is 2.5%).
+MIN_INTERFACE_PACKETS = 10_000
 
 # Findings that ask for action; "info" and "ok" are informational.
 ACTION_SEVERITIES = ("high", "medium", "low")
@@ -338,8 +340,12 @@ def _firmware_lines(speakers: list[SpeakerDiagnostics]) -> dict:
         # Prefer a line that shares the main release, then the one most speakers use.
         return (same_release(v), sum(1 for sp in speakers if sp.software_version == v), _version_tuple(v))
 
-    maintenance = max(others, key=weight) if others else ""
-    return {"main": main, "maintenance": maintenance, "same_release": bool(maintenance) and same_release(maintenance)}
+    best = max(others, key=weight) if others else ""
+    # Only a line that shares the main release (build or display version) counts as current;
+    # otherwise its speakers are on an older line that can't be confirmed as up to date.
+    if best and same_release(best):
+        return {"main": main, "maintenance": best, "unconfirmed": "", "same_release": True}
+    return {"main": main, "maintenance": "", "unconfirmed": best, "same_release": False}
 
 
 def _and_list(items: list[str]) -> str:
@@ -367,6 +373,8 @@ def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
             status = "newest"
         elif version == lines["maintenance"] and not model_behind:
             status = "maintenance"
+        elif version == lines["unconfirmed"] and not model_behind:
+            status = "unconfirmed"
         else:
             status = "behind"
         summary.append(
@@ -407,8 +415,9 @@ def _firmware_findings(
             )
 
     def expected(sp: SpeakerDiagnostics) -> str:
-        if lines["maintenance"] and _line(sp.software_version) == _line(lines["maintenance"]):
-            return lines["maintenance"]
+        for other in (lines["maintenance"], lines["unconfirmed"]):
+            if other and _line(sp.software_version) == _line(other):
+                return other
         return lines["main"]
 
     outliers = [by_ip[ip] for group in summary for ip in group["behind_ips"]]
@@ -444,21 +453,39 @@ def _firmware_findings(
             "firmware line, which receives essential updates with a focus on stability. Sonos says the different "
             "version number is normal and does not affect how these speakers work with the rest of the system."
         )
-        if lines["same_release"]:
-            parts = [p for p in (main["display_version"], f"build {_build(main['version'])}" if _build(main["version"]) else "") if p]
-            detail += (
-                " Both are the same Sonos release" + (f" ({', '.join(parts)})" if parts else "")
-                + ", so these speakers are fully up to date."
-            )
-        detail += " Source: support.sonos.com/en/article/legacy-product-update"
+        parts = [p for p in (main["display_version"], f"build {_build(main['version'])}" if _build(main["version"]) else "") if p]
+        detail += (
+            " Both are the same Sonos release" + (f" ({', '.join(parts)})" if parts else "")
+            + ", so these speakers are fully up to date. Source: support.sonos.com/en/article/legacy-product-update"
+        )
         findings.append(
             Finding(
-                severity="ok" if lines["same_release"] else "info",
+                severity="ok",
                 category="firmware",
                 title=f"{maintenance['count']} older speaker(s) are up to date on Sonos's legacy-product line",
                 detail=detail,
                 affected=_affected(
                     [by_ip[s["ip"]] for s in maintenance["speakers"]],
+                    lambda sp: f"{_model(sp)} on {sp.software_version}",
+                ),
+            )
+        )
+
+    unconfirmed = next((g for g in summary if g["status"] == "unconfirmed"), None)
+    if unconfirmed:
+        findings.append(
+            Finding(
+                severity="info",
+                category="firmware",
+                title=f"{unconfirmed['count']} speaker(s) on an older firmware line that couldn't be confirmed as current",
+                detail=(
+                    f"{_and_list(unconfirmed['models'])} speakers run {unconfirmed['version']}, a different version "
+                    f"line from the {lines['main']} your newer speakers run, and the two don't share a release build. "
+                    "Sonos keeps some older products on their own line, but this scan can't tell whether these are on "
+                    "its latest version. Check Settings > System > System Updates in the Sonos app."
+                ),
+                affected=_affected(
+                    [by_ip[s["ip"]] for s in unconfirmed["speakers"]],
                     lambda sp: f"{_model(sp)} on {sp.software_version}",
                 ),
             )
@@ -519,8 +546,13 @@ def _active_freq(sp: SpeakerDiagnostics) -> str:
     return sp.wifi_channel_mhz if sp.wifi_channel_mhz not in {"", "0"} else ""
 
 
+def _mhz(freq: str) -> int:
+    """Frequency in MHz from speaker text; 0 for anything that isn't a plain number."""
+    return int(freq) if re.fullmatch(r"[0-9]{1,5}", freq or "") else 0
+
+
 def _band(freq: str) -> str:
-    mhz = int(freq) if freq.isdigit() else 0
+    mhz = _mhz(freq)
     if 2400 <= mhz < 2500:
         return "2.4 GHz"
     if 5000 <= mhz < 5925:
@@ -531,7 +563,7 @@ def _band(freq: str) -> str:
 
 
 def _channel(freq: str) -> int | None:
-    mhz = int(freq) if freq.isdigit() else 0
+    mhz = _mhz(freq)
     band = _band(freq)
     if band == "2.4 GHz":
         return 14 if mhz == 2484 else (mhz - 2407) // 5
@@ -659,7 +691,7 @@ def _wireless_map(speakers: list[SpeakerDiagnostics], outlier_ips: set[str] = fr
                 "label": RADIO_USE_LABEL[use],
                 "band": _band(freq),
                 "channel": _channel(freq),
-                "freq_mhz": int(freq) if freq else None,
+                "freq_mhz": _mhz(freq) or None,
                 "speakers": [
                     {
                         "name": _label(sp),
@@ -911,9 +943,10 @@ def _interface_errors(sp: SpeakerDiagnostics, changes: dict | None) -> dict | No
         packets = stats.rx_packets + stats.tx_packets
         errors, dropped = stats.rx_errors + stats.tx_errors, stats.rx_dropped
         span, seconds = "since restart", None
-    if packets <= 0:
-        return None
-    pct = 100.0 * errors / packets
+    if packets <= 0 and since is None:
+        return None  # no counters at all
+    pct = 100.0 * errors / packets if packets > 0 else 0.0
+    graded = packets >= MIN_INTERFACE_PACKETS
     return {
         "port": port,
         "span": span,
@@ -922,7 +955,9 @@ def _interface_errors(sp: SpeakerDiagnostics, changes: dict | None) -> dict | No
         "errors": errors,
         "dropped": dropped,
         "error_pct": round(pct, 4),
-        "level": _level(4, "None", "good") if errors == 0
+        "graded": graded,
+        "level": _level(0, "Too few packets", "muted") if not graded
+        else _level(4, "None", "good") if errors == 0
         else _level(4, "Normal", "good") if pct < INTERFACE_ERROR_RATIO_PCT
         else _level(2, "High", "warn") if pct < 10 * INTERFACE_ERROR_RATIO_PCT
         else _level(1, "Very high", "bad"),
@@ -985,7 +1020,12 @@ def _wired_findings(speakers: list[SpeakerDiagnostics], interface: dict | None =
         )
 
     interface = interface or {sp.ip_address: _interface_errors(sp, None) for sp in speakers}
-    errors = [sp for sp in speakers if (interface.get(sp.ip_address) or {}).get("error_pct", 0) >= INTERFACE_ERROR_RATIO_PCT]
+    # Cable problems: Ethernet on wired speakers only, with enough packets to judge.
+    errors = [
+        sp for sp in speakers
+        if (i := interface.get(sp.ip_address)) and i["port"] == "eth0" and i["graded"]
+        and i["error_pct"] >= INTERFACE_ERROR_RATIO_PCT
+    ]
     if errors:
         findings.append(
             Finding(
@@ -1254,15 +1294,37 @@ def _history_findings(changes: dict) -> list[Finding]:
     def item(uid: str, note: str) -> dict:
         return {"name": names.get(uid, uid), "ip": ips.get(uid, ""), "note": note}
 
-    if changes["missing"]:
+    missing = changes["missing"]
+    models = changes.get("models", {})
+    # Portables go to sleep on battery, so their absence is normal.
+    asleep = {uid: t for uid, t in missing.items() if PORTABLE_MODELS.search(models.get(uid, "") or "")}
+    gone = {uid: t for uid, t in missing.items() if uid not in asleep}
+
+    def seen(at: str) -> str:
+        return f"not seen since {at[:16].replace('T', ' ')} UTC"
+
+    if gone:
         findings.append(
             Finding(
                 severity="medium",
                 category="history",
-                title=f"{len(changes['missing'])} speaker(s) missing since the last scan",
-                detail="These speakers answered the previous scan but not this one: they may be unplugged, off the network or restarting.",
-                affected=[item(uid, f"last seen at {ips.get(uid, '?')}") for uid in changes["missing"]],
+                title=f"{len(gone)} speaker(s) missing",
+                detail=(
+                    "These speakers answered an earlier scan in the last "
+                    f"{days} days but not this one: they may be unplugged, off the network or restarting."
+                ),
+                affected=[item(uid, seen(at)) for uid, at in sorted(gone.items(), key=lambda kv: kv[1])],
                 recommendation="Check that the missing speakers have power and appear in the Sonos app; scan again in a few minutes.",
+            )
+        )
+    if asleep:
+        findings.append(
+            Finding(
+                severity="info",
+                category="history",
+                title=f"{len(asleep)} portable speaker(s) not seen in this scan",
+                detail="Portable speakers (Move, Roam) go to sleep or leave the network on battery, so this is usually normal.",
+                affected=[item(uid, seen(at)) for uid, at in sorted(asleep.items(), key=lambda kv: kv[1])],
             )
         )
 

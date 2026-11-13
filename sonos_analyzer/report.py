@@ -13,6 +13,7 @@ from sonos_analyzer.analyze import ACTION_SEVERITIES, AnalysisReport, Finding
 FIRMWARE_STATUS = {
     "newest": "Current: main line",
     "maintenance": "Current: legacy-product line",
+    "unconfirmed": "Older line, not confirmed current",
     "behind": "Missed an update",
 }
 
@@ -52,7 +53,7 @@ def print_terminal(report: AnalysisReport) -> None:
     print("Firmware")
     print("-" * 72)
     for group in report.firmware:
-        note = {"newest": " - main line", "maintenance": " - legacy-product line", "behind": " - missed an update"}.get(group["status"], "")
+        note = {"newest": " - main line", "maintenance": " - legacy-product line", "unconfirmed": " - older line, not confirmed current", "behind": " - missed an update"}.get(group["status"], "")
         print(f"  {group['version']:<14} {group['count']:>2} speaker(s): {', '.join(group['models'])}{note}")
     print()
 

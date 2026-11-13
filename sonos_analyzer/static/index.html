@@ -248,6 +248,7 @@
     <button id="scan-button" type="submit">Scan network</button>
   </form>
 
+  <p id="monitoring" class="muted table-note" style="margin: 10px 2px 0"></p>
   <div id="error" class="card notice" role="alert" hidden></div>
   <div id="empty" class="card empty muted">No scan yet. Press <strong>Scan network</strong> to analyze your speakers.</div>
 
@@ -259,7 +260,6 @@
         <a id="download-html" class="button secondary" href="/report.html">Download HTML</a>
       </span>
     </div>
-    <p id="monitoring" class="muted table-note" style="margin: 8px 2px 0"></p>
     <div id="tiles" class="tiles"></div>
     <div id="fetch-errors" class="card notice" hidden></div>
 
@@ -306,9 +306,10 @@
         </div>
         <div>
           <h3><span id="ex-net"></span>Network errors</h3>
-          <p>The share of network packets that arrived damaged on the speaker's connection. On a cable this should be zero or very
-            close to it; errors usually mean a damaged cable or a bad switch port. Measured since the previous scan when there is one,
-            otherwise since the speaker last restarted.</p>
+          <p>The share of network packets that arrived damaged on the speaker's connection: its Ethernet port when wired, otherwise
+            its wireless link. On a cable this should be zero or very close to it; errors there usually mean a damaged cable or a bad
+            switch port. Measured since the previous scan when there is one, otherwise since the speaker last restarted; under
+            10,000 packets it shows "Too few packets" instead of a rating.</p>
           <p class="scale"><span>None or Normal: under 0.01%</span><span>High: 0.01–0.1%</span><span>Very high: 0.1% or more</span></p>
         </div>
         <p class="muted">The noise floor and signal bands and colors match the network matrix built into Sonos speakers. Sonos doesn't
@@ -382,7 +383,7 @@
     });
   }
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
-  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: legacy-product line", behind: "Missed an update" };
+  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: legacy-product line", unconfirmed: "Older line, not confirmed current", behind: "Missed an update" };
   const fmt = (n) => Math.round(n).toLocaleString();
   const utcTime = (iso) => iso ? new Date(iso).toISOString().slice(11, 19) : "";
   // What the PHY number is based on, for each speaker.
@@ -590,11 +591,11 @@
     if (!m.history) { box.textContent = "Scan history is off, so changes between scans aren't tracked."; return; }
     const when = (iso) => new Date(iso).toLocaleString();
     const parts = [m.interval_minutes ? `Scanning on its own every ${m.interval_minutes} min` : "Scans run when you press Scan"];
-    parts.push(h && h.previous_at ? `compared with the scan at ${when(h.previous_at)}` : "first scan in the history");
-    if (h && h.first_scan_at) parts.push(`history since ${when(h.first_scan_at)}, kept ${m.keep_days} days`);
+    if (report.generated_at) parts.push(h && h.previous_at ? `compared with the scan at ${when(h.previous_at)}` : "first scan in the history");
+    parts.push(h && h.first_scan_at ? `history since ${when(h.first_scan_at)}, kept ${m.keep_days} days` : `history kept ${m.keep_days} days`);
     const clear = el("button", { type: "button", className: "button secondary", textContent: "Clear history", style: "margin-left: 10px" });
     clear.addEventListener("click", async () => {
-      if (!confirm("Delete the saved scan history on this computer? Changes are tracked again from the next scan.")) return;
+      if (!confirm("Delete the saved scan history? Changes are tracked again from the next scan (a scan already running still saves its result).")) return;
       const resp = await api("/api/history/clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
       clear.textContent = resp.ok ? "History cleared" : "Couldn't clear history";
       clear.disabled = true;
@@ -740,7 +741,11 @@
         while (Date.now() - started < 60000) {
           await new Promise((r) => setTimeout(r, 2000));
           const latest = await api("/api/report").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-          if (latest && latest.generated_at !== lastGenerated) { render(latest); break; }
+          if (latest && latest.generated_at !== lastGenerated) {
+            render(latest);
+            showError("Another scan was already running, so these are its results. Press Scan network again to scan the addresses you typed.");
+            break;
+          }
         }
       } else if (!resp.ok) {
         showError(data.error || `Scan failed (${resp.status})`, data.fetch_errors || []);
@@ -788,10 +793,13 @@
   api("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch(() => {});
 
   // Desktop app only: a Quit button, and a heartbeat so the app can tell the page is still open.
-  fetch("/api/app").then((r) => r.json()).then(({ app }) => {
+  fetch("/api/app").then((r) => r.json()).then((info) => {
+    if (!lastGenerated) renderMonitoring({ monitoring: info.monitoring, history: null });
+    return info;
+  }).then(({ app }) => {
     if (!app) return;
     $("quit-button").hidden = false;
-    setInterval(() => fetch("/healthz").catch(() => {}), 60000);
+    setInterval(() => api("/healthz").catch(() => {}), 60000);
     $("quit-button").addEventListener("click", async () => {
       await api("/api/quit", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" }).catch(() => {});
       document.querySelector("main").replaceChildren(el("header", {}, [

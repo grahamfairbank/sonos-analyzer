@@ -28,7 +28,7 @@ The reviewer read every file, compiled the package, ran the web server on 127.0.
 | F13 | Low | Firmware "older line" could hide a missed update | **Fixed.** Models are compared by model number; a speaker whose model can't be read is marked "Model unknown" instead of being guessed; the finding is worded as a likelihood. |
 | F14 | Low | Speaker names could inject terminal escape codes | **Fixed.** Control characters are stripped from speaker-supplied text and error messages. |
 | F15 | Info | Docs and release hygiene | **Fixed:** scan time is "about 10 seconds" everywhere; the Mac app uses a numeric `CFBundleShortVersionString`; addresses in 100.64.0.0/10 (shared address space) are allowed. `docs/how-it-works.svg` was a local draft and is not part of the repository. |
-| F16 | Info | Any local account can reach the desktop app's port | **Fixed in 0.4.0.** The desktop app makes a random key at each launch and opens the browser with it; every request except the page itself must carry it, so other accounts on the same computer get "use the tab the app opened" instead of the data. Server and Docker installs are unchanged (no login; keep them on a trusted network). |
+| F16 | Info | Any local account can reach the desktop app's port | **Fixed in 0.4.0.** The desktop app makes a random key at each launch and opens the browser with it; every request except the page itself, the health check and the app-info call must carry it, so other accounts on the same computer get "use the tab the app opened" instead of the data. Server and Docker installs are unchanged (no login; keep them on a trusted network). |
 
 ## Original report
 

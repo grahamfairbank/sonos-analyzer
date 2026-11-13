@@ -21,7 +21,7 @@ from sonos_analyzer.analyze import AnalysisReport, analyze
 from sonos_analyzer.collect import collect_snapshot
 from sonos_analyzer.discovery import discover_speakers, off_network_hint
 from sonos_analyzer.report import render_html, report_payload
-from sonos_analyzer.targets import is_allowed_target
+from sonos_analyzer.targets import clean_text, is_allowed_target
 
 
 MAX_BODY = 16 * 1024
@@ -152,13 +152,15 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
 
         changes = None
         if HISTORY is not None:
-            record = history.record_from_snapshot(snapshot, scanned_at)
+            # History is a bonus: a problem with it is reported, never fails the scan.
             try:
+                record = history.record_from_snapshot(snapshot, scanned_at)
                 earlier = HISTORY.load(since=scanned_at - timedelta(days=history.TREND_DAYS))
                 changes = history.compare(earlier, record)
                 HISTORY.save(record)
-            except OSError as exc:
-                snapshot.fetch_errors.append(f"Scan history could not be read or saved: {exc}")
+            except Exception as exc:  # noqa: BLE001
+                changes = None
+                snapshot.fetch_errors.append(clean_text(f"Scan history could not be read or saved: {exc}"))
         _last_report = analyze(snapshot, changes)
         return _last_report
     finally:
@@ -173,17 +175,41 @@ def _last_known_ips() -> list[str]:
     return [sp["ip"] for sp in records[-1]["speakers"].values()] if records else []
 
 
+# After this many background rounds in a row where remembered speakers don't answer (for
+# example a laptop on another network), stop contacting them until someone scans again.
+MAX_FALLBACK_FAILURES = 3
+_fallback_failures = 0
+
+
+def _person_scanned() -> None:
+    """A scan someone asked for: background scans may use remembered speakers again."""
+    global _fallback_failures
+    _fallback_failures = 0
+
+
 def scan_in_background(interval_minutes: float) -> None:
     """Scan on a schedule so restarts and changes are caught between people's own scans."""
+    global _fallback_failures
     while True:
         time.sleep(interval_minutes * 60)
         try:
             try:
                 run_scan([], 3.0)
+                _fallback_failures = 0
             except ScanError as exc:
-                if exc.status == HTTPStatus.NOT_FOUND and (ips := _last_known_ips()):
-                    run_scan(ips[:MAX_IPS], 3.0)  # discovery can fail (e.g. Docker Desktop); reuse known speakers
-                elif exc.status != HTTPStatus.CONFLICT:
+                if exc.status == HTTPStatus.CONFLICT:
+                    continue
+                if exc.status != HTTPStatus.NOT_FOUND:
+                    raise
+                ips = _last_known_ips()
+                if not ips or _fallback_failures >= MAX_FALLBACK_FAILURES:
+                    continue
+                # Discovery can fail (e.g. Docker Desktop): reuse the speakers from the last scan.
+                try:
+                    run_scan(ips[:MAX_IPS], 3.0)
+                    _fallback_failures = 0
+                except ScanError:
+                    _fallback_failures += 1
                     raise
         except Exception as exc:  # noqa: BLE001 - keep the schedule running
             if not APP_MODE:
@@ -213,11 +239,14 @@ class Handler(BaseHTTPRequestHandler):
         )
         return True
 
+    def _has_key(self) -> bool:
+        return APP_KEY is None or hmac.compare_digest((self.headers.get(KEY_HEADER) or "").encode(), APP_KEY.encode())
+
     def _refuse_missing_key(self, path: str) -> bool:
         """Desktop app: refuse requests without this launch's key; True when refused."""
         if APP_KEY is None or path in PUBLIC_PATHS:
             return False
-        if hmac.compare_digest((self.headers.get(KEY_HEADER) or "").encode(), APP_KEY.encode()):
+        if self._has_key():
             return False
         self._send_json(
             HTTPStatus.UNAUTHORIZED,
@@ -246,7 +275,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if self._refuse_missing_key(path):
             return
-        last_activity = time.monotonic()
+        if self._has_key():  # only the app's own page keeps it running
+            last_activity = time.monotonic()
         if path in ("/", "/index.html"):
             page = resources.files("sonos_analyzer").joinpath("static/index.html").read_bytes()
             self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
@@ -282,7 +312,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if self._refuse_missing_key(path):
             return
-        last_activity = time.monotonic()
+        if self._has_key():  # only the app's own page keeps it running
+            last_activity = time.monotonic()
         if path == "/api/quit" and APP_MODE and on_quit:
             # JSON only, like /api/analyze, so other sites cannot stop the app.
             if self.headers.get_content_type() != "application/json":
@@ -341,6 +372,7 @@ class Handler(BaseHTTPRequestHandler):
             timeout = min(max(timeout, 1.0), MAX_DISCOVER_TIMEOUT)
 
             report = run_scan(ips, timeout)
+            _person_scanned()
         except ScanError as exc:
             self._send_json(exc.status, {"error": exc.message, "fetch_errors": exc.fetch_errors})
             return
@@ -370,6 +402,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()

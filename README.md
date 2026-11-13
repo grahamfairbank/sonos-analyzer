@@ -22,7 +22,7 @@ Pick the setup that matches what you have:
 The quickest way to try it on any machine with Docker:
 
 ```bash
-docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 -v sonos-analyzer-data:/data --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
+docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 -v sonos-analyzer-data:/data -e SONOS_ANALYZER_SCAN_INTERVAL=0 --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
 ```
 
 Then open http://localhost:8400, type one speaker's IP address and press **Scan network**. The ready-built image is made by GitHub Actions from the tagged source of each release, for Intel/AMD and ARM.
@@ -53,7 +53,7 @@ docker compose logs -f   # request log; Ctrl+C to stop following
 | Stop | `docker compose down` |
 | Start again | `docker compose up -d` |
 | Update to the latest version | `git pull && docker compose up -d --build` |
-| Remove completely | `docker compose down --rmi local` |
+| Remove completely | `docker compose down --rmi local -v` (also deletes the scan history volume) |
 
 The container restarts automatically after a reboot or crash unless you stopped it yourself.
 
@@ -68,7 +68,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `docker compose
 | `SONOS_ANALYZER_HOST` | `0.0.0.0` | Address the web UI binds to; set it to one of the host's addresses to serve the UI on that network only |
 | `SONOS_ANALYZER_ALLOWED_HOSTS` | none | Host names you open the page by, comma-separated (for example `nas.home.lan`). IP addresses, `localhost`, `.local` names and the machine's own name always work; other names are refused to block DNS-rebinding attacks. With Compose, put it in a `.env` file next to `docker-compose.yml`. Behind a reverse proxy (including one that serves the page over `https://`), add the name you browse to, and make sure the proxy passes that name on in the `Host` header. |
 | `SONOS_ANALYZER_SCAN_INTERVAL` | `15` | Minutes between background scans, which catch restarts, missing speakers and other changes between your own scans; `0` turns them off. When discovery finds nothing (Docker Desktop), background scans reuse the speakers from the last scan. |
-| `SONOS_ANALYZER_DATA` | `/data` in the image | Folder for scan history: one small JSON file per scan, kept 30 days. The `docker run` and Compose examples keep it in the `sonos-analyzer-data` volume so it survives updates. Clear it from the page with **Clear history**. |
+| `SONOS_ANALYZER_DATA` | `/data` in the image | Folder for scan history: one small JSON file per scan, kept 30 days. The `docker run` and Compose examples keep it in the `sonos-analyzer-data` volume so it survives updates; if you mount a folder instead, it must be writable by user `nobody` (UID 65534). Clear it from the page with **Clear history**. |
 
 ### Without Compose
 
@@ -163,7 +163,11 @@ Then open `http://<host>:8400`. Leave the IP field empty to auto-discover, or en
 - Wi-Fi quality: PHY error rate measured over a short window (`--phy-sample`), outliers against the rest of the household, noise floor, 2.4 GHz overlapping channels, DFS channels, extenders
 - Wired checks: radio left on for wired speakers, slow or half-duplex Ethernet links, interface error ratios, bridge RX drops, SonosNet / spanning-tree state
 - Speaker-to-speaker signal: how strongly each speaker's radio hears every other one (the data behind Sonos's own network matrix), shown in the web UI as a link diagram and a matrix
-- Trueplay tuning state per room
+- Trueplay tuning state per room (portables, Port, Boost and Amp are left out)
+- Group coordinator: groups led by a speaker on a noisy or older radio when a wired or better-placed member could lead them
+- Older Wi-Fi radios: models Sonos documents without WPA3, so a router change keeps WPA2 available
+- Monitoring (server): background scans every 15 minutes and 30 days of history, reporting missing speakers, unexpected restarts, firmware updates, IP, group coordinator and spanning-tree root changes, and network errors since the last scan
+- Plain-language readings: bars, words and colors for noise floor, signal and PHY errors, using the bands of Sonos's own network matrix where it has them
 - Related issues are reported as one finding listing every affected speaker, with actionable recommendations
 
 ## Limitations
@@ -189,6 +193,7 @@ To report a security problem privately, see [SECURITY.md](SECURITY.md).
 
 Independent reviews and what was done about each finding:
 
+- [2026-11-13: Fable review of the 0.4.0 release candidate](docs/reviews/2026-11-13-fable-review.md), fixed in 0.4.0
 - [2026-11-12: Fable review of v0.4.0-beta.1](docs/reviews/2026-11-12-fable-review.md), fixed in v0.4.0-beta.2
 
 ## Running the tests
@@ -211,7 +216,7 @@ See [CHANGELOG.md](CHANGELOG.md) for each release. Based on [soinkleined/sonos-a
 - A ready-built multi-architecture image on GitHub Container Registry, and a Docker Desktop guide for laptops
 - Fixes: model name and version were never read from the device description; the Trueplay state was interpreted the wrong way round
 
-Tested against one household (Sonos S2, Wi-Fi and Ethernet, SonosNet off), on Linux. SonosNet / Boost setups, S1 systems and portable speakers are untested.
+Tested against one household (Sonos S2, Wi-Fi and Ethernet, SonosNet off), on Linux, with the desktop app also run on Windows. SonosNet / Boost setups, S1 systems and portable speakers are untested; in particular the SonosNet checks (spanning-tree root, blocked Ethernet ports) have only been tested with made-up data.
 
 ## License
 

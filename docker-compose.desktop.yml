@@ -8,7 +8,10 @@ services:
     container_name: sonos-analyzer
     ports:
       - "127.0.0.1:8400:8400"
-    # Scan history; background scans reuse the speakers from your last scan.
+    environment:
+      # A laptop moves between networks, so no background scans: scan when you choose to.
+      SONOS_ANALYZER_SCAN_INTERVAL: "0"
+    # Scan history, so each scan shows what changed since the last one.
     volumes:
       - sonos-analyzer-data:/data
     restart: unless-stopped

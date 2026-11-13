@@ -87,10 +87,20 @@ class AnalyzeTests(unittest.TestCase):
         main = hh.Speaker(30, "A", "Sonos Era 100", "S39", version="98.0-82170")
         old = hh.Speaker(31, "B", "Sonos Play:1", "S12", version="86.11-80000")
         r = report([main, old], [[main], [old]])
-        f = finding(r, "legacy-product line")
+        # Different builds: never called up to date.
+        self.assertIsNone(finding(r, "legacy-product line"))
+        f = finding(r, "couldn't be confirmed as current")
         self.assertEqual(f.severity, "info")
-        self.assertNotIn("same Sonos release", f.detail)
+        self.assertEqual({g["version"]: g["status"] for g in r.firmware}["86.11-80000"], "unconfirmed")
         self.assertIsNone(finding(r, "missed a firmware update"))
+
+    def test_lone_old_major_not_called_current(self):
+        # Review R3: one current-model speaker on an older major version.
+        sps = [hh.Speaker(30 + i, f"R{i}", "Sonos One", "S18", version="86.2-70000") for i in range(3)]
+        era = hh.Speaker(40, "Studio", "Sonos Era 100", "S39", version="85.0-64110")
+        r = report([*sps, era], [[sp] for sp in [*sps, era]])
+        self.assertIsNone(finding(r, "up to date on Sonos's legacy-product line"))
+        self.assertIsNotNone(finding(r, "couldn't be confirmed as current"))
 
     def test_third_line_and_old_build_are_outliers(self):
         sps = [
