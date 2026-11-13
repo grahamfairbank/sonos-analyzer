@@ -60,6 +60,8 @@ To stop it, select **Quit Sonos Analyzer** on the page. If you just close the ta
 
 The laptop must be on the same network as the speakers: the same Wi-Fi (not a guest network), with any VPN turned off.
 
+The app keeps a short history of your scans (30 days, a few small files) so each scan can show what changed since the last one: missing speakers, restarts, IP and firmware changes. It's stored on this computer only, in `%APPDATA%\Sonos Analyzer` on Windows and `~/Library/Application Support/Sonos Analyzer` on a Mac. **Clear history** on the page deletes it.
+
 ## Troubleshooting
 
 | Symptom | What to check |

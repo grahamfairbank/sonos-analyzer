@@ -8,4 +8,10 @@ services:
     container_name: sonos-analyzer
     ports:
       - "127.0.0.1:8400:8400"
+    # Scan history; background scans reuse the speakers from your last scan.
+    volumes:
+      - sonos-analyzer-data:/data
     restart: unless-stopped
+
+volumes:
+  sonos-analyzer-data:

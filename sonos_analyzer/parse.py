@@ -52,6 +52,11 @@ class SpeakerDiagnostics:
     phy_errors: int | None = None
     noise_floor_dbm: list[int] = field(default_factory=list)
     hal_reset_failures: int | None = None
+    # Older (Atheros) radios: how hard the radio is tuning out interference.
+    # ANI level 0-9 (higher = more interference) or a weak-signal level; Sonos maps both to
+    # one score (6 best .. 1.5) and combines it with the noise floor in its network matrix.
+    ani_level: int | None = None
+    weak_signal_score: float | None = None
     is_stereo_left: bool = False
     is_stereo_right: bool = False
     is_stereo_coordinator: bool = False
@@ -376,6 +381,14 @@ def _parse_ath_status(text: str, speaker: SpeakerDiagnostics) -> None:
     phy_match = re.search(r"PHY errors since last reading/reset:\s*(\d+)", text)
     if phy_match:
         speaker.phy_errors = int(phy_match.group(1))
+
+    weak = re.search(r"OFDM Weak signal level: (\d+)", text)
+    ani = re.search(r"OFDM ANI level: (\d+)", text)
+    if weak:
+        speaker.weak_signal_score = float(weak.group(1))
+    elif ani:
+        speaker.ani_level = int(ani.group(1))
+        speaker.weak_signal_score = (12 - speaker.ani_level) / 2  # as Sonos's review.js
 
     hal_match = re.search(r"HAL Reset Failures: cnt:\s*(\d+)", text)
     if hal_match:

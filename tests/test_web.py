@@ -157,6 +157,23 @@ class ServerTests(unittest.TestCase):
         finally:
             web._scan_lock.release()
 
+    def test_history_clear(self):
+        import tempfile
+        from sonos_analyzer import history
+
+        resp, _ = self.request("POST", "/api/history/clear", b"{}", {"Content-Type": "application/json"})
+        self.assertEqual(resp.status, 404)  # history off
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(web, "HISTORY", history.History(tmp)):
+            self.assertEqual(self.scan()[0].status, 200)
+            self.assertEqual(self.scan()[0].status, 200)
+            resp, data = self.request("GET", "/api/report")
+            self.assertTrue(json.loads(data)["monitoring"]["history"])
+            self.assertIsNotNone(json.loads(data)["history"]["previous_at"])
+            resp, _ = self.request("POST", "/api/history/clear", b"{}", {"Content-Type": "application/json", "Origin": "https://evil.com"})
+            self.assertEqual(resp.status, 403)
+            resp, data = self.request("POST", "/api/history/clear", b"{}", {"Content-Type": "application/json"})
+            self.assertEqual(json.loads(data)["cleared"], 2)
+
     def test_quit_only_in_app_mode(self):
         self.assertEqual(self.request("POST", "/api/quit", b"{}", {"Content-Type": "application/json"})[0].status, 404)
         quit_called = threading.Event()

@@ -204,3 +204,54 @@ class LevelTests(unittest.TestCase):
         self.assertEqual(phy_level(idle, set())["label"], "Not in use")
         wifi.phy_error_rate = None
         self.assertIsNone(phy_level(wifi, set()))
+
+
+class GroupAndRadioTests(unittest.TestCase):
+    def test_coordinator_weak_with_wired_member(self):
+        speakers, _ = hh.household()
+        den, left, right = speakers[0], speakers[2], speakers[3]
+        # Kitchen pair (older-radio Ones on Wi-Fi) leads a group that includes the wired Den.
+        r = report(speakers, [[left, right, den], [speakers[1]], [speakers[4]], [speakers[5]], [speakers[6]],
+                              [speakers[7]], [speakers[8]], [speakers[9]]])
+        f = finding(r, "led by a speaker")
+        self.assertEqual(f.severity, "low")
+        self.assertIn("Den would be better", f.affected[0]["note"])
+        self.assertIn("start from Den", f.recommendation)
+
+    def test_coordinator_wired_is_fine(self):
+        speakers, _ = hh.household()
+        den, left, right = speakers[0], speakers[2], speakers[3]
+        r = report(speakers, [[den, left, right]] + [[sp] for sp in speakers[4:]] + [[speakers[1]]])
+        self.assertIsNone(finding(r, "led by a speaker"))
+
+    def test_pair_alone_is_not_a_group(self):
+        self.assertIsNone(finding(report(), "led by a speaker"))
+
+    def test_older_radio_note_is_informational(self):
+        f = finding(report(), "older Wi-Fi standard")
+        self.assertEqual(f.severity, "info")
+        self.assertIn("192.168.50.17", f.affected_ips)  # Play:1
+        self.assertNotIn("192.168.50.11", f.affected_ips)  # Era 100
+        self.assertIn("WPA2", f.detail)
+
+    def test_dfs_is_informational_without_recommendation(self):
+        sp = hh.Speaker(30, "A", "Sonos Era 100", "S39", channel_freq="5260", home_channel="5260")
+        r = report([sp], [[sp]])
+        f = finding(r, "DFS channel")
+        self.assertEqual(f.severity, "info")
+        self.assertFalse(any("DFS" in rec for rec in r.recommendations))
+
+
+class BridgeTests(unittest.TestCase):
+    def test_blocked_ethernet_on_wired_speaker(self):
+        speakers, groups = hh.household()
+        stp = ("br0\n bridge id\t\t8000.020000000e00\n designated root\t8000.020000000a00\n\n"
+               "eth0 (1)\n port id\t\t8001\t\t\tstate\t\t\tblocking\n"
+               "ath0 (2)\n port id\t\t8002\t\t\tstate\t\t\tforwarding\n")
+        speakers[4].stp = stp  # Living Room Arc, wired
+        speakers[0].stp = stp.replace("blocking", "forwarding").replace("020000000e00", "020000000a00")  # Den = root
+        r = report(speakers, groups)
+        f = finding(r, "Ethernet blocked by spanning tree")
+        self.assertEqual(f.affected_ips, ["192.168.50.14"])
+        self.assertIn("BPDU flooding", f.recommendation)
+        self.assertIn("Root bridge: Den", finding(r, "SonosNet mesh active").detail)

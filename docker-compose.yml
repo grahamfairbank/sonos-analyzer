@@ -12,4 +12,11 @@ services:
       # machine's own name (comma-separated). Set it in a .env file next to this one, e.g.
       # SONOS_ANALYZER_ALLOWED_HOSTS=nas.home.lan
       SONOS_ANALYZER_ALLOWED_HOSTS: ${SONOS_ANALYZER_ALLOWED_HOSTS:-}
+      # Minutes between background scans that track restarts and changes; 0 turns them off.
+      SONOS_ANALYZER_SCAN_INTERVAL: ${SONOS_ANALYZER_SCAN_INTERVAL:-15}
+    volumes:
+      - sonos-analyzer-data:/data
     restart: unless-stopped
+
+volumes:
+  sonos-analyzer-data:

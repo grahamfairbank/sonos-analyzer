@@ -7,7 +7,7 @@ from dataclasses import asdict
 from html import escape
 from pathlib import Path
 
-from sonos_analyzer.analyze import AnalysisReport, Finding
+from sonos_analyzer.analyze import ACTION_SEVERITIES, AnalysisReport, Finding
 
 
 FIRMWARE_STATUS = {
@@ -63,21 +63,32 @@ def print_terminal(report: AnalysisReport) -> None:
         print(f"  {row['label']:<28} {where:<14} {', '.join(s['name'] for s in row['speakers'])}")
     print()
 
-    print("Findings")
-    print("-" * 72)
-    for finding in report.findings:
-        print(f"[{SEVERITY_LABEL.get(finding.severity, finding.severity.upper())}] {finding.title}")
-        print(f"  {finding.detail}")
-        for item in finding.affected:
-            note = f": {item['note']}" if item["note"] else ""
-            print(f"    - {item['name']} ({item['ip']}){note}")
-        print()
+    for heading, group in (("Findings", _actions(report)), ("Informational (no action needed)", _notes(report))):
+        print(heading)
+        print("-" * 72)
+        if not group:
+            print("  Nothing needs attention.\n" if heading == "Findings" else "  None.\n")
+        for finding in group:
+            print(f"[{SEVERITY_LABEL.get(finding.severity, finding.severity.upper())}] {finding.title}")
+            print(f"  {finding.detail}")
+            for item in finding.affected:
+                note = f": {item['note']}" if item["note"] else ""
+                print(f"    - {item['name']} ({item['ip']}){note}")
+            print()
 
     print("Recommendations")
     print("-" * 72)
     for idx, rec in enumerate(report.recommendations, start=1):
         print(f"  {idx}. {rec}")
     print()
+
+
+def _actions(report: AnalysisReport) -> list[Finding]:
+    return [f for f in report.findings if f.severity in ACTION_SEVERITIES]
+
+
+def _notes(report: AnalysisReport) -> list[Finding]:
+    return [f for f in report.findings if f.severity not in ACTION_SEVERITIES]
 
 
 def report_payload(report: AnalysisReport) -> dict:
@@ -95,6 +106,7 @@ def report_payload(report: AnalysisReport) -> dict:
         "source_ips": report.snapshot.source_ips,
         "fetch_errors": report.snapshot.fetch_errors,
         "phy_sample": asdict(report.snapshot.phy_sample) if report.snapshot.phy_sample else None,
+        "history": report.history,
     }
 
 
@@ -113,7 +125,8 @@ def write_html(report: AnalysisReport, path: Path) -> None:
 
 def render_html(report: AnalysisReport) -> str:
     speaker_rows = "".join(_html_speaker_row(sp) for sp in report.speakers)
-    finding_blocks = "".join(_html_finding(f) for f in report.findings)
+    finding_blocks = "".join(_html_finding(f) for f in _actions(report))
+    note_blocks = "".join(_html_finding(f) for f in _notes(report))
     firmware_rows = "".join(
         "<tr>"
         f"<td>{escape(g['version'])}</td><td>{g['count']}</td>"
@@ -162,7 +175,7 @@ def render_html(report: AnalysisReport) -> str:
   <table>
     <thead>
       <tr>
-        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>Noise floor</th><th>RX drop %</th>
+        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>Noise floor</th><th>Network errors</th><th>RX drop %</th>
       </tr>
     </thead>
     <tbody>{speaker_rows}</tbody>
@@ -185,7 +198,10 @@ def render_html(report: AnalysisReport) -> str:
   {_html_signal_matrix(report.connections)}
 
   <h2>Findings</h2>
-  {finding_blocks or '<p>No findings.</p>'}
+  {finding_blocks or '<p>Nothing needs attention.</p>'}
+
+  <h2>Informational (no action needed)</h2>
+  {note_blocks or '<p>None.</p>'}
 
   <h2>Recommendations</h2>
   <ul>{rec_items}</ul>
@@ -249,6 +265,13 @@ def _noise_cell(sp: dict) -> str:
     return escape(f"{word}{dbm} dBm")
 
 
+def _interface_cell(sp: dict) -> str:
+    i = sp.get("interface")
+    if not i:
+        return ""
+    return escape(f"{i['level']['label']} · {i['error_pct']:.3f}% {i['span']}")
+
+
 def _html_speaker_row(sp: dict) -> str:
     drop = sp["br0_rx_drop_ratio_pct"]
     return (
@@ -261,6 +284,7 @@ def _html_speaker_row(sp: dict) -> str:
         f"<td>{escape(sp['software_version'] or '')}</td>"
         f"{_phy_cell(sp)}"
         f"<td>{_noise_cell(sp)}</td>"
+        f"<td>{_interface_cell(sp)}</td>"
         f"<td>{drop if drop is not None else ''}</td>"
         "</tr>"
     )

@@ -17,6 +17,8 @@ NOISE_FLOOR_ELEVATED_DBM = -85
 RX_DROP_RATIO_PCT = 20
 INTERFACE_ERROR_RATIO_PCT = 0.01
 
+# Findings that ask for action; "info" and "ok" are informational.
+ACTION_SEVERITIES = ("high", "medium", "low")
 ROLE_ORDER = ["Front", "Left", "Right", "Left surround", "Right surround", "Sub"]
 # Models that can't turn their Wi-Fi off: no built-in Ethernet port (USB-C adapter or none).
 NO_WIFI_OFF_MODELS = re.compile(r"\b(era 100|era 300|move|roam|sub mini)\b", re.IGNORECASE)
@@ -58,10 +60,13 @@ class AnalysisReport:
     firmware: list[dict] = field(default_factory=list)
     wireless: list[dict] = field(default_factory=list)
     connections: dict = field(default_factory=dict)
+    history: dict | None = None
 
 
-def analyze(snapshot: HouseholdSnapshot) -> AnalysisReport:
+def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> AnalysisReport:
+    """changes: comparison with earlier scans (history.compare), when history is kept."""
     speakers = sorted(snapshot.speakers.values(), key=_sort_key)
+    interface = {sp.ip_address: _interface_errors(sp, changes) for sp in speakers}
     rooms = _rooms(speakers)
 
     outlier_ips = {sp.ip_address for sp in _phy_outliers(speakers)[0]}
@@ -73,10 +78,17 @@ def analyze(snapshot: HouseholdSnapshot) -> AnalysisReport:
     findings += _firmware_findings(speakers, rooms)
     findings += _room_findings(speakers, rooms)
     findings += _wireless_findings(speakers)
-    findings += _wired_findings(speakers)
+    findings += _wired_findings(speakers, interface)
     findings += _calibration_findings(rooms)
+    findings += _coordinator_findings(speakers, outlier_ips)
+    findings += _radio_generation_findings(speakers)
+    if changes:
+        findings += _history_findings(changes)
 
-    recommendations = [f.recommendation for f in sorted(findings, key=_severity_rank) if f.recommendation]
+    # Informational findings need no action, so they add no recommendations.
+    recommendations = [
+        f.recommendation for f in sorted(findings, key=_severity_rank) if f.recommendation and f.severity in ACTION_SEVERITIES
+    ]
     if not any(f.severity in {"high", "medium"} for f in findings):
         recommendations.append("No significant issues detected.")
     recommendations.append("Reserve DHCP addresses for each speaker so IPs stay stable.")
@@ -87,7 +99,7 @@ def analyze(snapshot: HouseholdSnapshot) -> AnalysisReport:
         generated_at=datetime.now(timezone.utc).isoformat(),
         speaker_count=len(speakers),
         firmware_versions=firmware_versions,
-        speakers=[_speaker_to_dict(sp, outlier_ips) for sp in speakers],
+        speakers=[{**_speaker_to_dict(sp, outlier_ips), "interface": interface[sp.ip_address]} for sp in speakers],
         findings=sorted(findings, key=_severity_rank),
         recommendations=list(dict.fromkeys(recommendations)),
         snapshot=snapshot,
@@ -95,6 +107,7 @@ def analyze(snapshot: HouseholdSnapshot) -> AnalysisReport:
         firmware=_firmware_summary(speakers),
         wireless=_wireless_map(speakers, outlier_ips),
         connections=_connections(speakers),
+        history=_history_summary(changes),
     )
 
 
@@ -586,17 +599,27 @@ def _level(bars: int, label: str, tone: str) -> dict:
     return {"bars": bars, "label": label, "tone": tone}
 
 
-def noise_level(dbm: int | None) -> dict | None:
-    """Background radio noise where the speaker sits; lower dBm is quieter."""
+NOISE_LEVELS = [
+    _level(1, "Very noisy", "bad"),
+    _level(2, "Noisy", "warn"),
+    _level(3, "Some noise", "fair"),
+    _level(4, "Quiet", "good"),
+]
+
+
+def noise_level(dbm: int | None, weak_signal_score: float | None = None) -> dict | None:
+    """Background radio noise where the speaker sits; lower dBm is quieter.
+
+    Like Sonos's network matrix, an older radio's interference score (when reported) must
+    also clear each band: a quiet reading with the radio fighting interference isn't quiet.
+    """
     if dbm is None:
         return None
-    if dbm <= -95:
-        return _level(4, "Quiet", "good")
-    if dbm <= -90:
-        return _level(3, "Some noise", "fair")
-    if dbm <= NOISE_FLOOR_ELEVATED_DBM:
-        return _level(2, "Noisy", "warn")
-    return _level(1, "Very noisy", "bad")
+    by_noise = 4 if dbm <= -95 else 3 if dbm <= -90 else 2 if dbm <= NOISE_FLOOR_ELEVATED_DBM else 1
+    if weak_signal_score is None:
+        return NOISE_LEVELS[by_noise - 1]
+    by_score = 4 if weak_signal_score > 4 else 3 if weak_signal_score > 3 else 2 if weak_signal_score > 2 else 1
+    return NOISE_LEVELS[min(by_noise, by_score) - 1]
 
 
 def phy_level(sp: SpeakerDiagnostics, outlier_ips: set[str]) -> dict | None:
@@ -644,7 +667,9 @@ def _wireless_map(speakers: list[SpeakerDiagnostics], outlier_ips: set[str] = fr
                         "phy_errors_per_sec": _round_rate(sp.phy_error_rate),
                         "phy_level": phy_level(sp, outlier_ips),
                         "noise_floor_dbm": _noise_floor(sp),
-                        "noise_level": noise_level(_noise_floor(sp)),
+                        "noise_level": noise_level(_noise_floor(sp), sp.weak_signal_score),
+        "ani_level": sp.ani_level,
+        "hal_reset_failures": sp.hal_reset_failures,
                     }
                     for sp in members
                 ],
@@ -690,15 +715,15 @@ def _wireless_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
     if dfs:
         findings.append(
             Finding(
-                severity="low",
+                severity="info",
                 category="wireless",
                 title=f"{len(dfs)} speaker(s) on a 5 GHz DFS channel",
                 detail=(
                     "Routers must leave DFS channels (52-144) when they detect radar, "
-                    "which briefly disconnects everything on them."
+                    "which briefly disconnects everything on them. Usually harmless; if you notice "
+                    "occasional whole-house dropouts, moving the router's 5 GHz radio off DFS channels is worth a try."
                 ),
                 affected=_affected(dfs, lambda sp: f"channel {_channel(_active_freq(sp))}"),
-                recommendation="If you see periodic whole-house dropouts, move the router's 5 GHz radio off DFS channels.",
             )
         )
 
@@ -870,6 +895,40 @@ def _connections(speakers: list[SpeakerDiagnostics]) -> dict:
 # --- Wired / bridge ---------------------------------------------------------
 
 
+def _interface_errors(sp: SpeakerDiagnostics, changes: dict | None) -> dict | None:
+    """Errors and drops on the speaker's main interface, over a stated span.
+
+    Since the previous scan when the speaker hasn't restarted; otherwise since it last
+    restarted (the counters' own start, an unknown span).
+    """
+    since = (changes or {}).get("wired_since", {}).get(sp.local_uid)
+    if since:
+        port, packets, errors, dropped = since["port"], since["packets"], since["errors"], since["dropped"]
+        span, seconds = "since last scan", since["seconds"]
+    else:
+        port = "eth0" if sp.ethernet_link else "br0"
+        stats = getattr(sp, port)
+        packets = stats.rx_packets + stats.tx_packets
+        errors, dropped = stats.rx_errors + stats.tx_errors, stats.rx_dropped
+        span, seconds = "since restart", None
+    if packets <= 0:
+        return None
+    pct = 100.0 * errors / packets
+    return {
+        "port": port,
+        "span": span,
+        "seconds": round(seconds) if seconds is not None else None,
+        "packets": packets,
+        "errors": errors,
+        "dropped": dropped,
+        "error_pct": round(pct, 4),
+        "level": _level(4, "None", "good") if errors == 0
+        else _level(4, "Normal", "good") if pct < INTERFACE_ERROR_RATIO_PCT
+        else _level(2, "High", "warn") if pct < 10 * INTERFACE_ERROR_RATIO_PCT
+        else _level(1, "Very high", "bad"),
+    }
+
+
 def _rx_drop_ratio(sp: SpeakerDiagnostics) -> float | None:
     if sp.br0.rx_packets <= 0:
         return None
@@ -882,7 +941,7 @@ def _error_ratio(sp: SpeakerDiagnostics) -> float:
     return 100.0 * errors / packets if packets else 0.0
 
 
-def _wired_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
+def _wired_findings(speakers: list[SpeakerDiagnostics], interface: dict | None = None) -> list[Finding]:
     findings: list[Finding] = []
     wired = [sp for sp in speakers if _path(sp) == "wired"]
     sonosnet_in_use = any(_path(sp) == "sonosnet" for sp in speakers)
@@ -919,7 +978,8 @@ def _wired_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
             )
         )
 
-    errors = [sp for sp in speakers if _error_ratio(sp) >= INTERFACE_ERROR_RATIO_PCT]
+    interface = interface or {sp.ip_address: _interface_errors(sp, None) for sp in speakers}
+    errors = [sp for sp in speakers if (interface.get(sp.ip_address) or {}).get("error_pct", 0) >= INTERFACE_ERROR_RATIO_PCT]
     if errors:
         findings.append(
             Finding(
@@ -927,7 +987,9 @@ def _wired_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
                 category="wired",
                 title=f"Interface errors on {len(errors)} speaker(s)",
                 detail=f"More than {INTERFACE_ERROR_RATIO_PCT}% of packets on the network interface had errors.",
-                affected=_affected(errors, lambda sp: f"{_error_ratio(sp):.3f}% errors"),
+                affected=_affected(
+                    errors, lambda sp: f"{interface[sp.ip_address]['error_pct']:.3f}% errors {interface[sp.ip_address]['span']}"
+                ),
                 recommendation=f"{_names(errors)}: check the Ethernet cable and switch port.",
             )
         )
@@ -969,6 +1031,33 @@ def _wired_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
                 affected=_affected(meshed, _connection_summary),
             )
         )
+        # A blocked Ethernet port means spanning tree has turned off that speaker's cable.
+        cable_blocked = [
+            sp for sp in meshed
+            if sp.ethernet_link and any(port.startswith("eth") and state == "blocking" for port, state in sp.stp_ports)
+        ]
+        if cable_blocked:
+            findings.append(
+                Finding(
+                    severity="low",
+                    category="wired",
+                    title=f"Ethernet blocked by spanning tree on {len(cable_blocked)} wired speaker(s)",
+                    detail=(
+                        "These speakers are plugged in, but spanning tree has blocked their Ethernet port to prevent a "
+                        "network loop, so they aren't using the cable. Sonos requires managed switches to have Spanning "
+                        "Tree Protocol (STP) and BPDU flooding enabled; without them, several wired Sonos products can "
+                        "cause loops and broadcast storms."
+                    ),
+                    affected=_affected(
+                        cable_blocked,
+                        lambda sp: ", ".join(f"{port} {state}" for port, state in sp.stp_ports if port.startswith("eth")),
+                    ),
+                    recommendation=(
+                        "If you use managed switches, enable STP and BPDU flooding on them (Sonos: Using Sonos with a "
+                        "managed switch). In Sonos's own example setup, the main switch is made the root bridge."
+                    ),
+                )
+            )
         if any(_path(sp) == "wifi" for sp in speakers):
             findings.append(
                 Finding(
@@ -1017,6 +1106,229 @@ def _calibration_findings(rooms: dict[str, list[SpeakerDiagnostics]]) -> list[Fi
             affected=_affected(untuned, lambda sp: sp.model_name),
         )
     ]
+
+
+# --- Groups and radio hardware ----------------------------------------------
+
+# Sonos's "Supported WiFi modes and security standards" article: One (Gen 1), Play:1, Play:3,
+# Play:5 (Gen 2), Sub (Gen 1 and 2), SYMFONISK Bookshelf (Gen 1) and Table lamp (Gen 1) support
+# only 802.11a/b/g and no WPA3. Names that differ only by generation are matched by model
+# number; Sub (Gen 1/2) and Table lamp (Gen 1) are left out until their numbers are confirmed.
+OLDER_RADIO_MODEL_NUMBERS = {"S1", "S12", "S3", "S6", "S13", "S21"}
+OLDER_RADIO_NAMES = re.compile(r"^(sonos )?(play:1|play:3)$", re.IGNORECASE)
+
+
+def _older_radio(sp: SpeakerDiagnostics) -> bool:
+    return sp.model_number in OLDER_RADIO_MODEL_NUMBERS or bool(OLDER_RADIO_NAMES.match(sp.model_name or ""))
+
+
+def _weak_lead(sp: SpeakerDiagnostics, outlier_ips: set[str]) -> str:
+    """Why this speaker is a poor choice to lead a group, or ''."""
+    if _path(sp) == "wired":
+        return ""
+    if sp.ip_address in outlier_ips:
+        return "its radio sees far more interference than the rest of your speakers"
+    level = noise_level(_noise_floor(sp), sp.weak_signal_score)
+    if level and level["bars"] <= 2:
+        return "it sits in a noisy radio spot"
+    if _older_radio(sp):
+        return "it has an older Wi-Fi radio"
+    return ""
+
+
+def _coordinator_findings(speakers: list[SpeakerDiagnostics], outlier_ips: set[str]) -> list[Finding]:
+    """A group's coordinator receives the audio and sends it to the other members."""
+    groups: dict[str, list[SpeakerDiagnostics]] = {}
+    for sp in speakers:
+        if sp.group_id and not sp.is_invisible:
+            groups.setdefault(sp.group_id, []).append(sp)
+    by_uid = {sp.local_uid: sp for sp in speakers}
+    flagged = []
+    for members in groups.values():
+        rooms = {_room_key(sp) for sp in members}
+        coordinator = by_uid.get(members[0].coordinator_uid)
+        if len(rooms) < 2 or coordinator is None:
+            continue  # a single room (even a pair or home theater) isn't a group of rooms
+        reason = _weak_lead(coordinator, outlier_ips)
+        if not reason:
+            continue
+        better = [sp for sp in members if _room_key(sp) != _room_key(coordinator) and _path(sp) == "wired"]
+        better = better or [
+            sp for sp in members if _room_key(sp) != _room_key(coordinator) and not _weak_lead(sp, outlier_ips)
+        ]
+        if better:
+            flagged.append((coordinator, reason, better[0]))
+    if not flagged:
+        return []
+    return [
+        Finding(
+            severity="low",
+            category="rooms",
+            title=f"{len(flagged)} group(s) led by a speaker that's a weak choice",
+            detail=(
+                "In a group, one speaker (the group coordinator) receives the music and sends it to the others, "
+                "so it works hardest on your network. It's the room the group was started from, and Sonos "
+                "recommends starting groups from a wired speaker or the one closest to your router."
+            ),
+            affected=[
+                {"name": _label(c), "ip": c.ip_address, "note": f"leads the group, but {reason}; {_label(b)} would be better"}
+                for c, reason, b in flagged
+            ],
+            recommendation=(
+                "Ungroup, then group again starting from the better speaker: play on that room first, then add the "
+                "others. "
+                + "; ".join(f"For example, start from {_label(b)} instead of {_label(c)}" for c, _r, b in flagged[:2])
+                + "."
+            ),
+        )
+    ]
+
+
+def _radio_generation_findings(speakers: list[SpeakerDiagnostics]) -> list[Finding]:
+    findings = []
+    older = [sp for sp in speakers if _older_radio(sp)]
+    if older:
+        findings.append(
+            Finding(
+                severity="info",
+                category="wireless",
+                title=f"{len(older)} speaker(s) use an older Wi-Fi standard",
+                detail=(
+                    "Sonos lists these models as using older Wi-Fi standards (802.11a/b/g) without WPA3 security. "
+                    "They work fine today. When you replace your router or change its security settings, make sure "
+                    "WPA2 stays available on the network these speakers use; a WPA3-only network will leave them "
+                    "unable to connect. Source: support.sonos.com/en-us/article/supported-wifi-modes-and-security-standards-for-sonos-products"
+                ),
+                affected=_affected(older, lambda sp: sp.model_name or sp.model_number),
+            )
+        )
+    resets = [sp for sp in speakers if (sp.hal_reset_failures or 0) > 0]
+    if resets:
+        findings.append(
+            Finding(
+                severity="info",
+                category="wireless",
+                title=f"Radio reset failures reported on {len(resets)} speaker(s)",
+                detail=(
+                    "Older radios report a count of failed radio resets. Its meaning isn't documented; a count that "
+                    "keeps rising suggests the radio isn't restarting cleanly, which is worth a speaker restart and, "
+                    "if it continues, a diagnostic report to Sonos."
+                ),
+                affected=_affected(resets, lambda sp: f"{sp.hal_reset_failures} failure(s)"),
+            )
+        )
+    return findings
+
+
+# --- Changes between scans ------------------------------------------------
+
+
+def _history_summary(changes: dict | None) -> dict | None:
+    if not changes:
+        return None
+    return {
+        "previous_at": changes["previous_at"],
+        "first_scan_at": changes["first_scan_at"],
+        "scans_in_window": changes["scans_in_window"],
+        "trend_days": changes.get("trend_days", 7),
+    }
+
+
+def _history_findings(changes: dict) -> list[Finding]:
+    findings: list[Finding] = []
+    names, ips = changes["names"], changes["ips"]
+    days = changes.get("trend_days", 7)
+
+    def item(uid: str, note: str) -> dict:
+        return {"name": names.get(uid, uid), "ip": ips.get(uid, ""), "note": note}
+
+    if changes["missing"]:
+        findings.append(
+            Finding(
+                severity="medium",
+                category="history",
+                title=f"{len(changes['missing'])} speaker(s) missing since the last scan",
+                detail="These speakers answered the previous scan but not this one: they may be unplugged, off the network or restarting.",
+                affected=[item(uid, f"last seen at {ips.get(uid, '?')}") for uid in changes["missing"]],
+                recommendation="Check that the missing speakers have power and appear in the Sonos app; scan again in a few minutes.",
+            )
+        )
+
+    restarts = changes["restarts"]
+    if restarts:
+        repeated = {uid: n for uid, n in restarts.items() if n >= 3}
+        findings.append(
+            Finding(
+                severity="medium" if repeated else "low",
+                category="history",
+                title=f"Unexpected restarts in the last {days} days on {len(restarts)} speaker(s)",
+                detail=(
+                    "These speakers restarted without a firmware update: their boot counter went up between scans "
+                    "(the same signal Home Assistant uses to detect Sonos restarts). An occasional restart can follow "
+                    "a power cut; repeated ones usually point to power or a fault."
+                ),
+                affected=[
+                    item(uid, f"restarted at least {n} time{'s' if n != 1 else ''}")
+                    for uid, n in sorted(restarts.items(), key=lambda kv: -kv[1])
+                ],
+                recommendation=(
+                    "For speakers that restart repeatedly: plug them straight into a wall outlet (not a power strip or "
+                    "switched socket), check the cable, and contact Sonos support if it keeps happening."
+                ),
+            )
+        )
+
+    if changes["updates"]:
+        findings.append(
+            Finding(
+                severity="info",
+                category="history",
+                title=f"Firmware updated on {len(changes['updates'])} speaker(s) in the last {days} days",
+                detail="Restarts that came with these updates are expected and aren't counted as unexpected.",
+                affected=[item(uid, f"now {versions[-1]}") for uid, versions in changes["updates"].items()],
+            )
+        )
+
+    if changes["ip_changes"]:
+        findings.append(
+            Finding(
+                severity="info",
+                category="history",
+                title=f"IP address changed on {len(changes['ip_changes'])} speaker(s) in the last {days} days",
+                detail="Sonos finds speakers again after an address change, so this is usually harmless.",
+                affected=[item(uid, " → ".join(addrs)) for uid, addrs in changes["ip_changes"].items()],
+            )
+        )
+
+    if changes["coordinator_changes"]:
+        findings.append(
+            Finding(
+                severity="info",
+                category="history",
+                title=f"Group coordinator changed {len(changes['coordinator_changes'])} time(s) in the last {days} days",
+                detail=(
+                    "The same group of speakers was led by a different speaker. This happens when the group is "
+                    "started again from another room, or when the leading speaker leaves the group (Sonos then hands "
+                    "the job to another member automatically)."
+                ),
+                affected=[
+                    item(c["to"], f"took over from {names.get(c['from'], c['from'])} at {c['at'][11:16]} UTC")
+                    for c in changes["coordinator_changes"]
+                ],
+            )
+        )
+
+    if changes["new"]:
+        findings.append(
+            Finding(
+                severity="info",
+                category="history",
+                title=f"{len(changes['new'])} new speaker(s) since the last scan",
+                detail="Speakers that weren't in the previous scan.",
+                affected=[item(uid, "") for uid in changes["new"]],
+            )
+        )
+    return findings
 
 
 # --- Shared helpers ---------------------------------------------------------
@@ -1078,7 +1390,8 @@ def _speaker_to_dict(sp: SpeakerDiagnostics, outlier_ips: set[str] = frozenset()
         "wifi_channel_mhz": freq,
         "wifi_mode": sp.wifi_mode,
         "noise_floor_dbm": _noise_floor(sp),
-        "noise_level": noise_level(_noise_floor(sp)),
+        "noise_level": noise_level(_noise_floor(sp), sp.weak_signal_score),
+                        "ani_level": sp.ani_level,
         "trueplay": _trueplay(sp),
         "room_calibration_state": sp.room_calibration_state,
         "boot_seq": sp.boot_seq,

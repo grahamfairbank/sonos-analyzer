@@ -259,6 +259,7 @@
         <a class="button secondary" href="/report.html">Download HTML</a>
       </span>
     </div>
+    <p id="monitoring" class="muted table-note" style="margin: 8px 2px 0"></p>
     <div id="tiles" class="tiles"></div>
     <div id="fetch-errors" class="card notice" hidden></div>
 
@@ -267,9 +268,10 @@
       <table>
         <thead>
           <tr>
-            <th>Room</th><th>Model</th><th>IP</th><th>Connection</th><th>Firmware</th><th>Trueplay</th>
+            <th>Room</th><th>Model <span class="muted">· IP</span></th><th>Connection</th><th>Firmware</th><th>Trueplay</th>
             <th title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors<br><span class="muted">per second</span></th>
             <th title="Background radio noise; worst of the radio's receive chains">Noise floor</th>
+            <th title="Packets with errors on the speaker's network connection">Network errors</th>
           </tr>
         </thead>
         <tbody id="speakers"></tbody>
@@ -284,6 +286,8 @@
           <p>The background radio noise where the speaker sits, like the hum in a room before anyone speaks. The quieter it is, the
             easier it is for the speaker to hear your Wi-Fi. Readings are in dBm and are negative: <strong>lower (more negative) is quieter
             and better</strong>. Nearby electronics and other wireless gear raise it.</p>
+          <p>Some older models also report an interference level from 0 to 9: the radio lowers its own sensitivity when it detects
+            interference, and 0 means it's at full sensitivity. As in Sonos's own matrix, a high level lowers the rating. Hover a reading to see it.</p>
           <p class="scale"><span>Quiet: −95 or lower</span><span>Some noise: −90 to −94</span><span>Noisy: −85 to −89</span><span>Very noisy: above −85</span></p>
         </div>
         <div>
@@ -300,6 +304,13 @@
             radio isn't carrying audio, so the count doesn't affect playback.</p>
           <p class="scale"><span>Normal: under 500/s</span><span>High: 500/s or more</span><span>Very high: far above the rest of your speakers (flagged in Findings)</span></p>
         </div>
+        <div>
+          <h3><span id="ex-net"></span>Network errors</h3>
+          <p>The share of network packets that arrived damaged on the speaker's connection. On a cable this should be zero or very
+            close to it; errors usually mean a damaged cable or a bad switch port. Measured since the previous scan when there is one,
+            otherwise since the speaker last restarted.</p>
+          <p class="scale"><span>None or Normal: under 0.01%</span><span>High: 0.01–0.1%</span><span>Very high: 0.1% or more</span></p>
+        </div>
         <p class="muted">The noise floor and signal bands and colors match the network matrix built into Sonos speakers. Sonos doesn't
           grade PHY errors; those bands are this tool's guide.</p>
       </div>
@@ -307,6 +318,10 @@
 
     <h2>Findings</h2>
     <div id="findings"></div>
+    <details id="info-findings" class="card explain" hidden>
+      <summary id="info-summary"></summary>
+      <div id="info-list" class="body"></div>
+    </details>
 
     <h2>Radio channels</h2>
     <div class="card table-wrap">
@@ -361,6 +376,12 @@
     if (sp.phy_not_measured) return `Not measured: ${sp.phy_not_measured}`;
     return "This speaker's radio has no PHY counter to read";
   };
+  const minutes = (s) => s >= 5400 ? `${Math.round(s / 3600)} h` : `${Math.max(1, Math.round(s / 60))} min`;
+  const interfaceSpan = (i) => i.span === "since last scan" ? `${i.error_pct.toFixed(3)}% in last ${minutes(i.seconds)}` : `${i.error_pct.toFixed(3)}% since restart`;
+  const interfaceTitle = (i) => i
+    ? `${fmt(i.errors)} errors and ${fmt(i.dropped)} dropped in ${fmt(i.packets)} packets on ${i.port === "eth0" ? "Ethernet" : "the network bridge"}, `
+      + (i.span === "since last scan" ? `since the previous scan ${minutes(i.seconds)} earlier.` : "since the speaker last restarted (no earlier scan to compare).")
+    : "";
   const phyMethod = (sample) => sample
     ? `PHY errors per second: how measured. The analyzer cleared each radio's error counter, then read it again ` +
       `${sample.requested_seconds} s later. All speakers were measured at the same time ` +
@@ -422,6 +443,7 @@
   $("ex-noise").replaceChildren(meter({ bars: 4, label: "", tone: "good" }, ""));
   $("ex-signal").replaceChildren(meter({ bars: 3, label: "", tone: "fair" }, ""));
   $("ex-phy").replaceChildren(dotLabel({ label: "", tone: "good" }));
+  $("ex-net").replaceChildren(dotLabel({ label: "", tone: "good" }));
 
   function renderSignal(connections) {
     const { nodes = [], links = [], excluded = [] } = connections || {};
@@ -545,7 +567,28 @@
       : "";
   }
 
+  let lastGenerated = null;
+  function renderMonitoring(report) {
+    const m = report.monitoring || {}, h = report.history;
+    const box = $("monitoring");
+    if (!m.history) { box.textContent = "Scan history is off, so changes between scans aren't tracked."; return; }
+    const when = (iso) => new Date(iso).toLocaleString();
+    const parts = [m.interval_minutes ? `Scanning on its own every ${m.interval_minutes} min` : "Scans run when you press Scan"];
+    parts.push(h && h.previous_at ? `compared with the scan at ${when(h.previous_at)}` : "first scan in the history");
+    if (h && h.first_scan_at) parts.push(`history since ${when(h.first_scan_at)}, kept ${m.keep_days} days`);
+    const clear = el("button", { type: "button", className: "button secondary", textContent: "Clear history", style: "margin-left: 10px" });
+    clear.addEventListener("click", async () => {
+      if (!confirm("Delete the saved scan history on this computer? Changes are tracked again from the next scan.")) return;
+      const resp = await fetch("/api/history/clear", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      clear.textContent = resp.ok ? "History cleared" : "Couldn't clear history";
+      clear.disabled = true;
+    });
+    box.replaceChildren(`Monitoring: ${parts.join(" · ")}.`, clear);
+  }
+
   function render(report) {
+    lastGenerated = report.generated_at;
+    renderMonitoring(report);
     const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
     for (const f of report.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
 
@@ -592,8 +635,7 @@
           ? [sp.role || sp.zone_name]
           : [el("strong", { textContent: sp.room_name || "—" }),
              el("span", { className: "sub", textContent: bonded ? `${kind} · ${sp.role}` : "" })]),
-        el("td", { textContent: sp.model_name || "—" }),
-        el("td", {}, [el("code", { textContent: sp.ip_address })]),
+        el("td", {}, [sp.model_name || "—", el("code", { className: "sub", textContent: sp.ip_address })]),
         el("td", {}, [sp.connection_summary, el("span", { className: "sub", textContent: wired })]),
         el("td", {}, [sp.display_version || sp.software_version || "—",
           el("span", { className: "sub", textContent: sp.display_version ? sp.software_version : "" })]),
@@ -601,30 +643,38 @@
         el("td", { title: phyTitle(sp) }, rate == null
           ? [el("span", { className: "muted", textContent: sp.phy_not_measured ? "not measured" : "—" })]
           : [sp.phy_level ? dotLabel(sp.phy_level) : "", el("span", { className: "sub", textContent: `${fmt(rate)} per second` })]),
-        el("td", {}, sp.noise_floor_dbm == null
+        el("td", { title: sp.ani_level == null ? "" : `Interference level: ${sp.ani_level} of 9 (0 = full sensitivity; higher = radio desensitized by interference)` }, sp.noise_floor_dbm == null
           ? [el("span", { className: "muted", textContent: "—" })]
           : [sp.noise_level ? meter(sp.noise_level) : "", el("span", { className: "sub", textContent: `${sp.noise_floor_dbm} dBm` })]),
+        el("td", { title: interfaceTitle(sp.interface) }, sp.interface
+          ? [dotLabel(sp.interface.level), el("span", { className: "sub", textContent: interfaceSpan(sp.interface) })]
+          : [el("span", { className: "muted", textContent: "—" })]),
       ]);
       if (member) row.classList.add("member");
       if (next && next.room_id === sp.room_id) row.classList.add("has-members");
       return row;
     }));
 
-    $("findings").replaceChildren(...report.findings.map((f) => {
+    const isAction = (f) => ["high", "medium", "low"].includes(f.severity);
+    const card = (f) => {
       const sev = SEVERITIES.includes(f.severity) ? f.severity : "low";
-      const card = el("div", { className: `card finding ${sev}` }, [
+      const box = el("div", { className: `card finding ${sev}` }, [
         el("div", { className: "head" }, [
           el("span", { className: `badge ${sev}`, textContent: sev.toUpperCase() }),
           el("h3", { textContent: f.title }),
         ]),
         el("p", { textContent: f.detail }),
       ]);
-      if (f.affected.length) card.append(chips(f.affected.map((a) => [a.name, a.note])));
-      return card;
-    }));
-    if (!report.findings.length) {
-      $("findings").replaceChildren(el("p", { className: "muted", textContent: "No findings." }));
-    }
+      if (f.affected.length) box.append(chips(f.affected.map((a) => [a.name, a.note])));
+      return box;
+    };
+    const actions = report.findings.filter(isAction), notes = report.findings.filter((f) => !isAction(f));
+    $("findings").replaceChildren(...(actions.length ? actions.map(card)
+      : [el("p", { className: "muted", textContent: "Nothing needs attention." })]));
+    // Informational findings: no action needed, collapsed, never counted in the tiles.
+    $("info-findings").hidden = !notes.length;
+    $("info-summary").textContent = `Informational (${notes.length}): no action needed`;
+    $("info-list").replaceChildren(...notes.map(card));
 
     $("wireless").replaceChildren(...report.wireless.map((w) => el("tr", {}, [
       el("td", { textContent: w.label }),
@@ -667,7 +717,16 @@
         body: JSON.stringify({ ips, discover_timeout: Number($("timeout").value) || 3 }),
       });
       const data = await resp.json();
-      if (!resp.ok) {
+      if (resp.status === 409) {
+        // A scheduled scan is already running: show its result when it finishes.
+        button.textContent = "Waiting for the scan in progress…";
+        const started = Date.now();
+        while (Date.now() - started < 60000) {
+          await new Promise((r) => setTimeout(r, 2000));
+          const latest = await fetch("/api/report").then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          if (latest && latest.generated_at !== lastGenerated) { render(latest); break; }
+        }
+      } else if (!resp.ok) {
         showError(data.error || `Scan failed (${resp.status})`, data.fetch_errors || []);
       } else {
         render(data);

@@ -10,7 +10,7 @@ import time
 import webbrowser
 from http.server import ThreadingHTTPServer
 
-from sonos_analyzer import __version__, web
+from sonos_analyzer import __version__, history, web
 
 
 FIRST_PORT = 8400
@@ -61,6 +61,8 @@ def main(argv: list[str] | None = None) -> int:
     url = f"http://127.0.0.1:{server.server_address[1]}/"
 
     web.APP_MODE = True
+    # History in the user's app-data folder; no background scans (the app scans while you use it).
+    web.configure(history.default_dir(app_mode=True), 0)
     web.on_quit = server.shutdown
     web.last_activity = time.monotonic()
     if args.idle_timeout > 0:

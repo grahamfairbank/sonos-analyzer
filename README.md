@@ -20,7 +20,7 @@ Pick the setup that matches what you have:
 The quickest way to try it on any machine with Docker:
 
 ```bash
-docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
+docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 -v sonos-analyzer-data:/data --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
 ```
 
 Then open http://localhost:8400, type one speaker's IP address and press **Scan network**. The ready-built image is made by GitHub Actions from the tagged source of each release, for Intel/AMD and ARM.
@@ -65,20 +65,22 @@ Set these under `environment:` in `docker-compose.yml`, then run `docker compose
 | `SONOS_ANALYZER_INTERFACE` | all interfaces | Limit speaker discovery to one interface, by name (`eth0`) or IPv4 address |
 | `SONOS_ANALYZER_HOST` | `0.0.0.0` | Address the web UI binds to; set it to one of the host's addresses to serve the UI on that network only |
 | `SONOS_ANALYZER_ALLOWED_HOSTS` | none | Host names you open the page by, comma-separated (for example `nas.home.lan`). IP addresses, `localhost`, `.local` names and the machine's own name always work; other names are refused to block DNS-rebinding attacks. With Compose, put it in a `.env` file next to `docker-compose.yml`. Behind a reverse proxy (including one that serves the page over `https://`), add the name you browse to, and make sure the proxy passes that name on in the `Host` header. |
+| `SONOS_ANALYZER_SCAN_INTERVAL` | `15` | Minutes between background scans, which catch restarts, missing speakers and other changes between your own scans; `0` turns them off. When discovery finds nothing (Docker Desktop), background scans reuse the speakers from the last scan. |
+| `SONOS_ANALYZER_DATA` | `/data` in the image | Folder for scan history: one small JSON file per scan, kept 30 days. The `docker run` and Compose examples keep it in the `sonos-analyzer-data` volume so it survives updates. Clear it from the page with **Clear history**. |
 
 ### Without Compose
 
 Using the ready-built image:
 
 ```bash
-docker run -d --name sonos-analyzer --network host --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
+docker run -d --name sonos-analyzer --network host -v sonos-analyzer-data:/data --restart unless-stopped ghcr.io/grahamfairbank/sonos-analyzer:latest
 ```
 
 Or build it yourself from the source:
 
 ```bash
 docker build -t sonos-analyzer .
-docker run -d --name sonos-analyzer --network host --restart unless-stopped sonos-analyzer
+docker run -d --name sonos-analyzer --network host -v sonos-analyzer-data:/data --restart unless-stopped sonos-analyzer
 ```
 
 Add `-e SONOS_ANALYZER_PORT=9000` (or any other setting above) before the image name to change a setting.

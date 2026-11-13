@@ -10,11 +10,12 @@ import signal
 import socket
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 
-from sonos_analyzer import __version__
+from sonos_analyzer import __version__, history
 from sonos_analyzer.analyze import AnalysisReport, analyze
 from sonos_analyzer.collect import collect_snapshot
 from sonos_analyzer.discovery import discover_speakers, off_network_hint
@@ -37,6 +38,10 @@ EXTRA_ALLOWED_HOSTS = {
 
 _scan_lock = threading.Lock()
 _last_report: AnalysisReport | None = None
+
+# Scan history (None = not kept) and the background scan interval in minutes (0 = off).
+HISTORY: history.History | None = None
+SCAN_INTERVAL_MINUTES = 0.0
 
 # Set by the desktop app (sonos_analyzer.app): adds a Quit button to the page.
 APP_MODE = False
@@ -130,6 +135,7 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
                 )
 
         snapshot = collect_snapshot(ips)
+        scanned_at = datetime.now(timezone.utc)
         if not snapshot.speakers:
             hint = off_network_hint(ips)
             raise ScanError(
@@ -138,10 +144,48 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
                 snapshot.fetch_errors,
             )
 
-        _last_report = analyze(snapshot)
+        changes = None
+        if HISTORY is not None:
+            record = history.record_from_snapshot(snapshot, scanned_at)
+            try:
+                earlier = HISTORY.load(since=scanned_at - timedelta(days=history.TREND_DAYS))
+                changes = history.compare(earlier, record)
+                HISTORY.save(record)
+            except OSError as exc:
+                snapshot.fetch_errors.append(f"Scan history could not be read or saved: {exc}")
+        _last_report = analyze(snapshot, changes)
         return _last_report
     finally:
         _scan_lock.release()
+
+
+def _last_known_ips() -> list[str]:
+    """Speaker addresses from the most recent saved scan, for when discovery finds nothing."""
+    if HISTORY is None:
+        return []
+    records = HISTORY.load(since=datetime.now(timezone.utc) - timedelta(days=history.TREND_DAYS))
+    return [sp["ip"] for sp in records[-1]["speakers"].values()] if records else []
+
+
+def scan_in_background(interval_minutes: float) -> None:
+    """Scan on a schedule so restarts and changes are caught between people's own scans."""
+    while True:
+        time.sleep(interval_minutes * 60)
+        try:
+            try:
+                run_scan([], 3.0)
+            except ScanError as exc:
+                if exc.status == HTTPStatus.NOT_FOUND and (ips := _last_known_ips()):
+                    run_scan(ips[:MAX_IPS], 3.0)  # discovery can fail (e.g. Docker Desktop); reuse known speakers
+                elif exc.status != HTTPStatus.CONFLICT:
+                    raise
+        except Exception as exc:  # noqa: BLE001 - keep the schedule running
+            if not APP_MODE:
+                print(f"Background scan failed: {exc}", flush=True)
+
+
+def monitoring_status() -> dict:
+    return {"history": HISTORY is not None, "interval_minutes": SCAN_INTERVAL_MINUTES, "keep_days": history.KEEP_DAYS}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -186,14 +230,14 @@ class Handler(BaseHTTPRequestHandler):
             page = resources.files("sonos_analyzer").joinpath("static/index.html").read_bytes()
             self._send(HTTPStatus.OK, page, "text/html; charset=utf-8")
         elif path == "/api/app":
-            self._send_json(HTTPStatus.OK, {"app": APP_MODE, "version": __version__})
+            self._send_json(HTTPStatus.OK, {"app": APP_MODE, "version": __version__, "monitoring": monitoring_status()})
         elif path == "/healthz":
             self._send_json(HTTPStatus.OK, {"status": "ok", "version": __version__})
         elif path == "/api/report":
             if _last_report is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "No scan has been run yet."})
             else:
-                self._send_json(HTTPStatus.OK, report_payload(_last_report))
+                self._send_json(HTTPStatus.OK, {**report_payload(_last_report), "monitoring": monitoring_status()})
         elif path == "/report.html":
             if _last_report is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "No scan has been run yet."})
@@ -220,6 +264,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send_json(HTTPStatus.OK, {"stopping": True})
             threading.Thread(target=on_quit, daemon=True).start()
+            return
+        if path == "/api/history/clear":
+            if self.headers.get_content_type() != "application/json":
+                self._send_json(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, {"error": "Content-Type must be application/json"})
+                return
+            if HISTORY is None:
+                self._send_json(HTTPStatus.NOT_FOUND, {"error": "Scan history is not kept"})
+                return
+            try:
+                removed = HISTORY.clear()
+            except OSError as exc:
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Could not clear history: {exc}"})
+                return
+            self._send_json(HTTPStatus.OK, {"cleared": removed})
             return
         if path != "/api/analyze":
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
@@ -264,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Scan failed: {exc}"})
             return
 
-        self._send_json(HTTPStatus.OK, report_payload(report))
+        self._send_json(HTTPStatus.OK, {**report_payload(report), "monitoring": monitoring_status()})
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - http.server signature
         # The desktop app has no console on macOS, and a request log is noise for its users.
@@ -292,6 +350,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
+def configure(history_dir, interval_minutes: float) -> None:
+    """Turn on scan history (when a folder is given) and background scans (when > 0)."""
+    global HISTORY, SCAN_INTERVAL_MINUTES
+    HISTORY = history.History(history_dir) if history_dir else None
+    SCAN_INTERVAL_MINUTES = max(interval_minutes, 0) if HISTORY is not None else 0
+    if SCAN_INTERVAL_MINUTES:
+        threading.Thread(target=scan_in_background, args=(max(SCAN_INTERVAL_MINUTES, 1),), daemon=True).start()
+
+
 def _raise_interrupt(_signum: int, _frame: object) -> None:
     raise KeyboardInterrupt
 
@@ -309,7 +376,14 @@ def main(argv: list[str] | None = None) -> int:
         default=int(os.environ.get("SONOS_ANALYZER_PORT", "8400")),
         help="Port to listen on (default: 8400, or $SONOS_ANALYZER_PORT)",
     )
+    parser.add_argument(
+        "--scan-interval",
+        type=float,
+        default=float(os.environ.get("SONOS_ANALYZER_SCAN_INTERVAL", "15")),
+        help="Minutes between background scans; 0 to turn off (default: 15, or $SONOS_ANALYZER_SCAN_INTERVAL)",
+    )
     args = parser.parse_args(argv)
+    configure(history.default_dir(), args.scan_interval)
 
     # As PID 1 in a container Python ignores SIGTERM unless a handler is installed.
     signal.signal(signal.SIGTERM, _raise_interrupt)
@@ -317,7 +391,9 @@ def main(argv: list[str] | None = None) -> int:
     server = ThreadingHTTPServer((args.host, args.port), Handler)
     print(
         f"sonos-analyzer web UI listening on http://{args.host}:{args.port} "
-        f"(discovery interface: {DISCOVERY_INTERFACE or 'all'})",
+        f"(discovery interface: {DISCOVERY_INTERFACE or 'all'}; "
+        + (f"history in {HISTORY.dir}, background scans every {SCAN_INTERVAL_MINUTES:g} min)" if SCAN_INTERVAL_MINUTES
+           else f"history in {HISTORY.dir}, no background scans)" if HISTORY else "no scan history)"),
         flush=True,
     )
     try:

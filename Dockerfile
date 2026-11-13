@@ -8,14 +8,17 @@ LABEL org.opencontainers.image.title="sonos-analyzer" \
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     SONOS_ANALYZER_HOST=0.0.0.0 \
-    SONOS_ANALYZER_PORT=8400
+    SONOS_ANALYZER_PORT=8400 \
+    SONOS_ANALYZER_DATA=/data
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY sonos_analyzer ./sonos_analyzer
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && mkdir /data && chown nobody /data
 
 USER nobody
+# Scan history (30 days of small JSON files). Mount a volume here to keep it across updates.
+VOLUME /data
 EXPOSE 8400
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
