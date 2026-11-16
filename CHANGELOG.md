@@ -2,7 +2,9 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.7.0] - 2026-11-16
+
+Background response checks: catch speakers that drop out between scans.
 
 ### Added
 
@@ -191,6 +193,7 @@ Pilot pre-release of the desktop app.
 
 Original command-line analyzer by David Klein ([soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer)).
 
+[0.7.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0...v0.5.0
