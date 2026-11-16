@@ -2,6 +2,18 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Background response checks (server mode with background scans): each speaker is checked once a minute (`SONOS_ANALYZER_PROBE_INTERVAL`, `0` turns them off), staggered so they don't all go at once. Results are summarized per speaker per hour (typical, 95th percentile and slowest time, failures, jitter) and kept 30 days in `probe.json` next to the scan history. Clear history clears them too.
+  - The speakers table and the network map show the last 24 hours as one bar per hour (taller = slower, red = failed tries), with a 7-day summary on hover.
+  - New findings, only for clear patterns: a speaker that stops answering for 3+ minutes while the rest answer (low); all speakers going quiet together (info, pointing at this computer, the router or an access point); a speaker that is slow most of the time (low); and slow hours shared by most speakers on one Wi-Fi channel (info). When events cluster at a time of day, the finding says when (in the server's time zone).
+
+### Fixed
+
+- A display error while showing a saved report is now logged in the browser console instead of being hidden.
+
 ## [0.6.1] - 2026-11-16
 
 Fixes from testing 0.6.0, and the Mac download that 0.6.0 is missing.

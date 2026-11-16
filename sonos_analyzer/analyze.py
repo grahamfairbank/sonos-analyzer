@@ -70,8 +70,9 @@ class AnalysisReport:
     network_map: list[dict] = field(default_factory=list)
 
 
-def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> AnalysisReport:
-    """changes: comparison with earlier scans (history.compare), when history is kept."""
+def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None, probe: dict | None = None) -> AnalysisReport:
+    """changes: comparison with earlier scans (history.compare), when history is kept.
+    probe: the background response-time probe's recent data (probe.Prober.snapshot), in server mode."""
     speakers = sorted(snapshot.speakers.values(), key=_sort_key)
     interface = {sp.ip_address: _interface_errors(sp, changes) for sp in speakers}
     rooms = _rooms(speakers)
@@ -91,6 +92,8 @@ def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> Analysi
     findings += _radio_generation_findings(speakers)
     findings += _network_findings(snapshot, speakers)
     findings += _other_system_findings(snapshot)
+    if probe:
+        findings += _probe_findings(probe, speakers)
     if changes:
         findings += _history_findings(changes)
 
@@ -1581,6 +1584,7 @@ def _network_map(
                 "speakers": [
                     {
                         "name": sp.role or sp.zone_name,
+                        "ip": sp.ip_address,
                         "model": sp.model_name,
                         "path": _connection_summary(sp),
                         "link_type": WIRELESS_MODES.get(sp.wireless_mode, ""),
@@ -1601,6 +1605,187 @@ def _network_map(
         column.pop("order")
         column["rooms"].sort(key=lambda r: r["name"].lower())
     return ordered
+
+
+# --- Background response-time probe ----------------------------------------
+
+PROBE_SLOW_MS = 100
+PROBE_SLOW_FACTOR = 5
+PROBE_SPIKE_FACTOR = 4
+PROBE_MIN_TRIES = 10  # an hour with fewer tries isn't judged
+OUTAGE_MINUTES = 3
+
+
+def _when(stamp: str) -> datetime | None:
+    try:
+        return datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone()
+    except (TypeError, ValueError):
+        try:
+            return datetime.strptime(stamp, "%Y-%m-%dT%H:00Z").replace(tzinfo=timezone.utc).astimezone()
+        except (TypeError, ValueError):
+            return None
+
+
+def _local(at: datetime) -> str:
+    return at.strftime("%a %d %b %H:%M")
+
+
+def _time_pattern(moments: list[datetime]) -> str:
+    """'Most happened between 19:00 and 22:00 (server time, UTC).' when events cluster by time of day."""
+    if len(moments) < 3 or len({m.date() for m in moments}) < 2:
+        return ""
+    best_start, best = 0, 0
+    for start in range(24):
+        count = sum(1 for m in moments if (m.hour - start) % 24 < 3)
+        if count > best:
+            best_start, best = start, count
+    if best / len(moments) < 0.6:
+        return ""
+    zone = moments[0].tzname() or "server time"
+    return (
+        f" {best} of {len(moments)} happened between {best_start:02d}:00 and {(best_start + 3) % 24:02d}:00 "
+        f"({zone}), which points to something that happens at that time of day, such as other devices "
+        "getting busy or a microwave or other interference."
+    )
+
+
+def _probe_findings(probe: dict, speakers: list[SpeakerDiagnostics]) -> list[Finding]:
+    findings: list[Finding] = []
+    by_uid = {sp.local_uid: sp for sp in speakers if sp.local_uid}
+    data = {uid: e for uid, e in (probe.get("speakers") or {}).items() if uid in by_uid}
+    if not data:
+        return findings
+    now = datetime.now(timezone.utc)
+
+    # Outages: runs of failed tries. When most speakers fail together, the cause is shared
+    # (this computer's own connection, the router or an access point restarting).
+    outages = [o for o in probe.get("outages") or [] if o.get("uid") in data]
+    spans = []
+    for o in outages:
+        start, end = _when(o["start"]), _when(o["end"]) if o.get("end") else now.astimezone()
+        if start and end:
+            spans.append((o, start, end))
+    probed = len(data)
+    shared_threshold = max(3, int(0.75 * probed + 0.999))
+    shared, single = [], []
+    for o, start, end in spans:
+        overlapping = {x["uid"] for x, s2, e2 in spans if s2 <= end and e2 >= start}
+        (shared if probed >= 3 and len(overlapping) >= shared_threshold else single).append((o, start, end))
+
+    if single:
+        per: dict[str, list] = {}
+        for o, start, end in single:
+            per.setdefault(o["uid"], []).append((o, start, end))
+        affected = []
+        for uid, items in per.items():
+            longest = max(int((end - start).total_seconds() // 60) or 1 for _o, start, end in items)
+            last = max(items, key=lambda i: i[1])
+            note = f"{len(items)} time(s), longest {longest} min, last {_local(last[1])}"
+            if any(o.get("ongoing") for o, _s, _e in items):
+                note += "; not answering now"
+            affected.append({"name": _label(by_uid[uid]), "ip": by_uid[uid].ip_address, "note": note})
+        findings.append(
+            Finding(
+                severity="low",
+                category="monitoring",
+                title=f"{len(per)} speaker(s) stopped answering for {OUTAGE_MINUTES} minutes or more",
+                detail=(
+                    "The background check couldn't reach these speakers for several tries in a row while the others "
+                    "answered, so the cause is likely local to them: Wi-Fi reach where they sit, power, or the speaker "
+                    "itself. Music on them would have stopped during these times."
+                    + _time_pattern([start for _o, start, _e in single])
+                ),
+                affected=affected,
+                recommendation=(
+                    "For speakers that drop off repeatedly: check their Wi-Fi signal where they sit (or wire them), "
+                    "plug them straight into a wall outlet, and contact Sonos support if it continues."
+                ),
+            )
+        )
+    if shared:
+        events: list[datetime] = []
+        for _o, start, _end in sorted(shared, key=lambda i: i[1]):
+            if not events or (start - events[-1]).total_seconds() > 600:
+                events.append(start)
+        findings.append(
+            Finding(
+                severity="info",
+                category="monitoring",
+                title=f"All speakers stopped answering at the same time ({len(events)} time(s))",
+                detail=(
+                    "Most speakers went quiet together, so the cause is shared rather than in the speakers: this "
+                    "computer's own network connection, the router, or an access point restarting. Times: "
+                    + ", ".join(_local(e) for e in events[-5:]) + "."
+                    + _time_pattern(events)
+                ),
+            )
+        )
+
+    # Baselines from hours with enough tries.
+    def judged(entry):
+        return [(h, st) for h, st in entry["hours"].items() if st.get("n", 0) >= PROBE_MIN_TRIES and "p95" in st]
+
+    baseline = {}
+    for uid, entry in data.items():
+        values = [st["p95"] for _h, st in judged(entry)]
+        if len(values) >= 3:
+            baseline[uid] = statistics.median(values)
+    if len(baseline) >= 3:
+        household = statistics.median(baseline.values())
+        slow = [
+            uid for uid, b in baseline.items()
+            if b >= PROBE_SLOW_MS and b >= PROBE_SLOW_FACTOR * max(household, 1)
+        ]
+        if slow:
+            findings.append(
+                Finding(
+                    severity="low",
+                    category="monitoring",
+                    title=f"{len(slow)} speaker(s) answer slowly most of the time",
+                    detail=(
+                        f"Over the last days, these speakers' slower answers typically took {PROBE_SLOW_MS} ms or more, "
+                        f"while most of your speakers stay around {household:.0f} ms. A speaker that is consistently "
+                        "slow usually has a weak Wi-Fi connection where it sits."
+                    ),
+                    affected=_affected([by_uid[u] for u in slow], lambda sp: f"typically {baseline[sp.local_uid]:.0f} ms"),
+                    recommendation="Move these speakers or the nearest access point closer, or wire them.",
+                )
+            )
+
+    # Slow hours shared by several speakers on one Wi-Fi channel: that channel or access point.
+    channel_of = {uid: f"{_band(_active_freq(by_uid[uid]))} ch {_channel(_active_freq(by_uid[uid]))}"
+                  for uid in data if _radio_use(by_uid[uid]) == "wifi" and _channel(_active_freq(by_uid[uid]))}
+    by_channel: dict[str, list[str]] = {}
+    for uid, ch in channel_of.items():
+        if uid in baseline:
+            by_channel.setdefault(ch, []).append(uid)
+    for ch, members in by_channel.items():
+        if len(members) < 3:
+            continue
+        hours: dict[str, list[str]] = {}
+        for uid in members:
+            limit = max(PROBE_SLOW_MS, PROBE_SPIKE_FACTOR * baseline[uid])
+            for h, st in judged(data[uid]):
+                if st["p95"] >= limit or st.get("fail", 0) >= 3:
+                    hours.setdefault(h, []).append(uid)
+        bad = sorted(h for h, uids in hours.items() if len(uids) >= max(3, int(len(members) * 2 / 3 + 0.999)))
+        if len(bad) >= 2:
+            moments = [m for m in (_when(h) for h in bad) if m]
+            findings.append(
+                Finding(
+                    severity="info",
+                    category="monitoring",
+                    title=f"Slow periods on Wi-Fi {ch} affecting several speakers at once",
+                    detail=(
+                        f"In {len(bad)} hour(s) over the last days, most speakers on {ch} answered much more slowly "
+                        "than usual at the same time, so the cause is that channel or its access point (interference or "
+                        "a busy network) rather than the speakers. Recent: "
+                        + ", ".join(_local(m) for m in moments[-4:]) + "." + _time_pattern(moments)
+                    ),
+                    affected=_affected([by_uid[u] for u in members], lambda sp: ""),
+                )
+            )
+    return findings
 
 
 # --- Changes between scans ------------------------------------------------

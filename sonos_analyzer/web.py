@@ -8,6 +8,7 @@ import ipaddress
 import json
 import os
 import signal
+import statistics
 import socket
 import threading
 import time
@@ -16,7 +17,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 
-from sonos_analyzer import __version__, history
+from sonos_analyzer import __version__, history, probe
 from sonos_analyzer.analyze import AnalysisReport, analyze
 from sonos_analyzer.collect import collect_snapshot
 from sonos_analyzer.discovery import discover_speakers, off_network_hint
@@ -29,6 +30,9 @@ MAX_IPS = 64
 MAX_DISCOVER_TIMEOUT = 15.0
 
 DISCOVERY_INTERFACE = os.environ.get("SONOS_ANALYZER_INTERFACE") or None
+# Server mode: seconds between background response-time tries per speaker; "0" turns them off.
+PROBE_INTERVAL_SECONDS = float(os.environ.get("SONOS_ANALYZER_PROBE_INTERVAL", str(probe.DEFAULT_INTERVAL_SECONDS)) or 0)
+PROBE: probe.Prober | None = None
 # Ask the router (UPnP) for its internet-side address to spot double NAT; "0" turns it off.
 ROUTER_CHECK = os.environ.get("SONOS_ANALYZER_ROUTER_CHECK", "1").strip() != "0"
 # Host names the page may be opened by, besides IP addresses, localhost, *.local and this
@@ -163,7 +167,11 @@ def run_scan(ips: list[str], discover_timeout: float) -> AnalysisReport:
             except Exception as exc:  # noqa: BLE001
                 changes = None
                 snapshot.fetch_errors.append(clean_text(f"Scan history could not be read or saved: {exc}"))
-        _last_report = analyze(snapshot, changes)
+        if PROBE is not None:
+            PROBE.set_targets(
+                {ip: {"uid": sp.local_uid, "name": sp.zone_name} for ip, sp in snapshot.speakers.items() if sp.local_uid}
+            )
+        _last_report = analyze(snapshot, changes, probe=PROBE.snapshot() if PROBE is not None else None)
         return _last_report
     finally:
         _scan_lock.release()
@@ -219,7 +227,45 @@ def scan_in_background(interval_minutes: float) -> None:
 
 
 def monitoring_status() -> dict:
-    return {"history": HISTORY is not None, "interval_minutes": SCAN_INTERVAL_MINUTES, "keep_days": history.KEEP_DAYS}
+    return {
+        "history": HISTORY is not None,
+        "interval_minutes": SCAN_INTERVAL_MINUTES,
+        "keep_days": history.KEEP_DAYS,
+        "probe_seconds": PROBE.interval if PROBE is not None else 0,
+    }
+
+
+def probe_payload(report: AnalysisReport) -> dict | None:
+    """The background probe's last 24 hours per speaker (by current IP) and a 7-day summary."""
+    if PROBE is None:
+        return None
+    data = PROBE.snapshot()
+    by_uid = {sp.local_uid: ip for ip, sp in report.snapshot.speakers.items() if sp.local_uid}
+    outages: dict[str, int] = {}
+    for o in data["outages"]:
+        outages[o["uid"]] = outages.get(o["uid"], 0) + 1
+    speakers = {}
+    for uid, entry in data["speakers"].items():
+        ip = by_uid.get(uid)
+        if not ip:
+            continue
+        hours = [{"t": h, **s} for h, s in entry["hours"].items()]
+        medians = [h["median"] for h in hours if "median" in h]
+        speakers[ip] = {
+            "hours": hours[-24:],
+            "week": {
+                "n": sum(h["n"] for h in hours),
+                "fail": sum(h["fail"] for h in hours),
+                "median": round(statistics.median(medians), 1) if medians else None,
+                "worst_p95": max((h["p95"] for h in hours if "p95" in h), default=None),
+                "outages": outages.get(uid, 0),
+            },
+        }
+    return {"interval_seconds": data["interval_seconds"], "since": data["since"], "speakers": speakers}
+
+
+def full_payload(report: AnalysisReport) -> dict:
+    return {**report_payload(report), "monitoring": monitoring_status(), "probe": probe_payload(report)}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -293,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
             if _last_report is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "No scan has been run yet."})
             else:
-                self._send_json(HTTPStatus.OK, {**report_payload(_last_report), "monitoring": monitoring_status()})
+                self._send_json(HTTPStatus.OK, full_payload(_last_report))
         elif path == "/report.html":
             if _last_report is None:
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "No scan has been run yet."})
@@ -333,6 +379,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             try:
                 removed = HISTORY.clear()
+                if PROBE is not None:
+                    PROBE.clear()
             except OSError as exc:
                 self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Could not clear history: {exc}"})
                 return
@@ -382,7 +430,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Scan failed: {exc}"})
             return
 
-        self._send_json(HTTPStatus.OK, {**report_payload(report), "monitoring": monitoring_status()})
+        self._send_json(HTTPStatus.OK, full_payload(report))
 
     def log_message(self, format: str, *args) -> None:  # noqa: A002 - http.server signature
         # The desktop app has no console on macOS, and a request log is noise for its users.
@@ -419,6 +467,20 @@ def configure(history_dir, interval_minutes: float) -> None:
     SCAN_INTERVAL_MINUTES = max(interval_minutes, 0) if HISTORY is not None else 0
     if SCAN_INTERVAL_MINUTES:
         threading.Thread(target=scan_in_background, args=(max(SCAN_INTERVAL_MINUTES, 1),), daemon=True).start()
+    start_probe()
+
+
+def start_probe() -> None:
+    """Server mode with background scans: probe each speaker's response time once a minute."""
+    global PROBE
+    if PROBE is not None or HISTORY is None or not SCAN_INTERVAL_MINUTES or PROBE_INTERVAL_SECONDS <= 0:
+        return
+    PROBE = probe.Prober(HISTORY.dir, PROBE_INTERVAL_SECONDS, keep_days=history.KEEP_DAYS)
+    # Until the first scan, probe the speakers from the last saved one.
+    records = HISTORY.load(since=datetime.now(timezone.utc) - timedelta(days=history.TREND_DAYS))
+    if records:
+        PROBE.set_targets({sp["ip"]: {"uid": uid, "name": sp.get("name", "")} for uid, sp in records[-1]["speakers"].items()})
+    PROBE.start()
 
 
 def _raise_interrupt(_signum: int, _frame: object) -> None:

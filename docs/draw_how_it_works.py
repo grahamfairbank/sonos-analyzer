@@ -52,7 +52,7 @@ add('<text x="40" y="80" font-size="15" fill="#555">Reads the diagnostics built 
 add('<text x="40" y="122" font-size="13" font-weight="bold" fill="#3b7dd8">WAYS IN</text>')
 entries = [
     ("Desktop app", ["Windows or Mac, nothing to install;", "opens a browser tab with a key", "made at each launch"]),
-    ("Docker on a server", ["always on, on the speakers' network;", "scans on its own every 15 min"]),
+    ("Docker on a server", ["always on, on the speakers' network;", "scans every 15 min and checks", "each speaker once a minute"]),
     ("Docker Desktop", ["a laptop with Docker; page on", "this computer only; type one IP"]),
     ("Command line", ["sonos-analyzer --ips ...", "prints, or saves JSON / HTML"]),
 ]

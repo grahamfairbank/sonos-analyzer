@@ -239,6 +239,13 @@
     .groups p { padding: 8px 0 0; }
     .groups .lead { font-weight: 600; }
 
+    .spark { display: block; width: 72px; height: 16px; margin-top: 3px; margin-left: auto; }
+    .netsp .spark { display: inline-block; vertical-align: -3px; margin: 0 0 0 6px; }
+    .spark rect { fill: var(--tone-good); }
+    .spark rect.warn { fill: var(--tone-warn); }
+    .spark rect.bad { fill: var(--tone-bad); }
+    .spark rect.none { fill: var(--border); }
+
     [hidden] { display: none !important; }
     @media (max-width: 640px) { form { grid-template-columns: 1fr; } }
   </style>
@@ -634,8 +641,38 @@
     el("span", {}, [el("span", { className: "k", textContent: "Noise" }), "bars: background radio noise. ",
       meter({ bars: 4, label: "Quiet", tone: "good" }), " −95 dBm or lower · ", meter({ bars: 3, label: "Some noise", tone: "fair" }), " · ",
       meter({ bars: 2, label: "Noisy", tone: "warn" }), " · ", meter({ bars: 1, label: "Very noisy", tone: "bad" }), " above −85 dBm"]),
-    el("span", {}, [el("span", { className: "k", textContent: "Response" }), "time to answer on port 1400; over 100 ms is highlighted. Hover any reading for its number."]),
+    el("span", {}, [el("span", { className: "k", textContent: "Response" }), "time to answer on port 1400; over 100 ms is highlighted. On a server, the bars beside it are the last 24 hours (one per hour, red = failed tries). Hover any reading for its number."]),
   );
+
+  // Background probe (server): last 24 hours per speaker, one bar per hour. Height = slowest
+  // typical answer that hour (95th percentile, log scale); orange over 100 ms; red = failed tries.
+  let probeData = null;
+  function hourKey(d) { return d.toISOString().slice(0, 13) + ":00Z"; }
+  function sparkline(ip) {
+    const p = probeData && probeData.speakers && probeData.speakers[ip];
+    if (!p) return null;
+    const byHour = Object.fromEntries(p.hours.map((h) => [h.t, h]));
+    const now = new Date();
+    const bars = [];
+    for (let i = 0; i < 24; i++) {
+      const h = byHour[hourKey(new Date(now.getTime() - (23 - i) * 3600000))];
+      let height = 2, cls = "none";
+      if (h && h.fail) { height = 16; cls = "bad"; }
+      else if (h && h.p95 != null) {
+        height = 3 + 13 * Math.min(1, Math.log10(Math.max(1, h.p95)) / Math.log10(300));
+        cls = h.p95 >= 100 ? "warn" : "";
+      }
+      bars.push(svg("rect", { x: i * 3, y: 16 - height, width: 2.2, height, class: cls }));
+    }
+    const w = p.week, day = p.hours.slice(-24);
+    const fails = day.reduce((a, h) => a + (h.fail || 0), 0), tries = day.reduce((a, h) => a + (h.n || 0), 0);
+    const worst = Math.max(0, ...day.filter((h) => h.p95 != null).map((h) => h.p95));
+    const title = `Background check, last 24 hours (one bar per hour, taller = slower, red = failed tries): `
+      + `${fmt(tries)} tries, ${fmt(fails)} failed, slowest hour's 95th percentile ${ms(worst)}. `
+      + `Last 7 days: typical ${w.median != null ? ms(w.median) : "—"}, ${fmt(w.fail)} of ${fmt(w.n)} tries failed, `
+      + `${w.outages} outage${w.outages === 1 ? "" : "s"} of 3+ minutes.`;
+    return svg("svg", { class: "spark", viewBox: "0 0 72 16", role: "img", "aria-label": title }, [svg("title", {}, [title]), ...bars]);
+  }
 
   function renderMap(columns) {
     $("map-section").hidden = !columns.length;
@@ -650,8 +687,12 @@
           const label = (k, node, title) => el("span", { title }, [el("span", { className: "k", textContent: k }), node]);
           if (sp.phy_level) reads.push(label("PHY", dotLabel(sp.phy_level), sp.phy_errors_per_sec == null ? "" : `PHY errors: ${fmt(sp.phy_errors_per_sec)} per second`));
           if (sp.noise_level) reads.push(label("Noise", meter(sp.noise_level), `Noise floor ${sp.noise_floor_dbm} dBm`));
-          if (sp.response_ms != null) reads.push(label("Response",
-            el("span", { className: sp.response_ms > 100 ? "tone-warn" : "", textContent: ms(sp.response_ms) }), responseTitle(sp)));
+          if (sp.response_ms != null) {
+            const line = sparkline(sp.ip);
+            reads.push(label("Response",
+              el("span", {}, [el("span", { className: sp.response_ms > 100 ? "tone-warn" : "", textContent: ms(sp.response_ms) }), ...(line ? [line] : [])]),
+              responseTitle(sp)));
+          }
           const named = room.speakers.length > 1 || sp.name !== room.name;
           const link = sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type : sp.path;
           return el("div", { className: "netsp" }, [
@@ -699,6 +740,7 @@
 
   function render(report) {
     lastGenerated = report.generated_at;
+    probeData = report.probe || null;
     renderMonitoring(report);
     const counts = Object.fromEntries(SEVERITIES.map((s) => [s, 0]));
     for (const f of report.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
@@ -772,11 +814,11 @@
         el("td", { title: interfaceTitle(sp.interface) }, sp.interface
           ? [dotLabel(sp.interface.level), el("span", { className: "sub", textContent: interfaceSpan(sp.interface) })]
           : [el("span", { className: "muted", textContent: "—" })]),
-        el("td", { className: "num", title: responseTitle(sp) }, sp.response_ms == null
+        el("td", { className: "num", title: responseTitle(sp) }, (sp.response_ms == null
           ? [el("span", { className: "muted", textContent: "—" })]
           : sp.response_slow
             ? [el("span", { className: "meter tone-warn" }, [el("span", { className: "dot" }), el("span", { className: "word", textContent: ms(sp.response_ms) })])]
-            : [ms(sp.response_ms)]),
+            : [ms(sp.response_ms)]).concat(sparkline(sp.ip_address) || [])),
       ]);
       if (member) row.classList.add("member");
       if (next && next.room_id === sp.room_id) row.classList.add("has-members");
@@ -903,7 +945,7 @@
     });
   }
 
-  api("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch(() => {});
+  api("/api/report").then((r) => (r.ok ? r.json() : null)).then((r) => r && render(r)).catch((e) => console.error(e));
 
   // Desktop app only: a Quit button, and a heartbeat so the app can tell the page is still open.
   fetch("/api/app").then((r) => r.json()).then((info) => {
