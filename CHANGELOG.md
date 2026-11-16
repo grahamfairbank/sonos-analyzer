@@ -2,6 +2,12 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- README: screenshots are back, with a new hero image, a guided tour of the page and a one-page poster (`docs/screenshots/`). They use a made-up demo household; `docs/demo_household.py` serves it so the screenshots can be retaken.
+
 ## [0.7.0] - 2026-11-16
 
 Background response checks: catch speakers that drop out between scans.

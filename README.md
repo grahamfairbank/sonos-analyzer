@@ -1,12 +1,20 @@
 # Sonos Analyzer
 
-Analyze Sonos speakers on your local network — firmware, connectivity, stereo-pair topology, Wi-Fi vs Ethernet issues, and practical recommendations.
+**Your Sonos speakers keep a diary. This reads it to you.**
 
-This is a fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer) by David Klein, which provides the original command-line analyzer. The fork adds a web UI, a Docker image and deeper analysis; see [Changes from the original](#changes-from-the-original).
+Every Sonos speaker quietly keeps notes about its Wi-Fi, its neighbors, its firmware and its bad days. Sonos Analyzer collects those notes from every speaker on your network and turns them into plain English: what's wrong, why, and what to do about it. One click, about ten seconds, no account, nothing sent anywhere.
 
-Uses the same diagnostic endpoints Sonos exposes locally (`/support/review`, UPnP zone topology). **No cloud account required.** Your speakers must be reachable on the same network as the machine running this tool.
+<p align="center">
+  <img src="docs/screenshots/hero.webp" alt="Sonos Analyzer: severity counts, household overview, findings in plain English and a network map (demo household)" width="100%">
+</p>
 
-![How Sonos Analyzer works: four ways in, five steps from finding speakers to the results page, scan history, and safeguards](docs/how-it-works.svg)
+- 🔍 **Finds the real problems.** Speakers that missed a firmware update, a radio drowning in interference, a speaker that keeps restarting, a stereo pair split across channels.
+- 🗺️ **Draws your system.** A network map of every room by how it connects, plus who-hears-whom between speakers.
+- 🗣️ **Talks like a person.** Every reading gets a word and a color first (Quiet, Noisy, Very high) and the number underneath.
+- 🕵️ **Keeps watch (on a server).** Scans every 15 minutes, checks each speaker once a minute and catches the ones that drop out while you're not looking.
+- 🔒 **Look, don't touch.** Read-only, private addresses only, no cloud, no Sonos account. Windows, Mac, Docker or plain Python.
+
+This is a fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer) by David Klein, which provides the original command-line analyzer. The fork adds a web UI, a desktop app, a Docker image and much deeper analysis; see [Changes from the original](#changes-from-the-original). It uses the diagnostic pages Sonos speakers expose on your local network (`/support/review`, UPnP zone topology), so the computer running it must be on the same network as the speakers.
 
 ## Get started
 
@@ -26,6 +34,52 @@ docker run -d --name sonos-analyzer -p 127.0.0.1:8400:8400 -v sonos-analyzer-dat
 ```
 
 Then open http://localhost:8400, type one speaker's IP address and press **Scan network**. The ready-built image is made by GitHub Actions from the tagged source of each release, for Intel/AMD and ARM.
+
+## A quick tour
+
+All screenshots show version 0.7.0 with a made-up demo household ([`docs/demo_household.py`](docs/demo_household.py)) that has a few typical problems, so there's something to find.
+
+### It tells you what to fix, and what to ignore
+
+Findings to act on come first, ranked by severity, with every affected speaker named and the fix spelled out. Things that are fine but worth knowing sit in a collapsed "Informational" section, so they never nag.
+
+![Findings: the Kitchen pair missed a firmware update, the Kids' Room radio is very noisy and drops out, the Record Player restarted, and more](docs/screenshots/findings.webp)
+
+### Your network, as a map
+
+Rooms grouped by how they connect: wired, each Wi-Fi channel, home theaters and stereo pairs outlined. Each speaker shows its radio errors (dot), background noise (bars) and response time, with a small 24-hour history on a server. Spot the odd one out: the Kids' Room, alone on 2.4 GHz, very noisy, with red bars where it stopped answering in the evenings.
+
+![Network map: wired rooms, Wi-Fi 2.4 GHz channel 6, Wi-Fi 5 GHz channels 36 and 149, with readings and 24-hour bars per speaker](docs/screenshots/map.webp)
+
+### Every speaker, in words humans use
+
+Firmware, connection, Trueplay, radio errors, noise floor, network errors and response time for every speaker, grouped by room. A word and a color first; the raw number underneath for the curious.
+
+![Speakers table with firmware, connection, Trueplay, PHY errors, noise floor, network errors and response time](docs/screenshots/speakers.webp)
+
+### Who hears whom
+
+The data behind Sonos's own hidden network matrix, drawn as a map and a table. Hover or click a speaker to see how well it hears every other one.
+
+![Speaker-to-speaker signal map and matrix](docs/screenshots/signal.webp)
+
+### What does "Very noisy" actually mean?
+
+Every reading is explained on the page. Noise and speaker-to-speaker signal use the same bands as the network matrix built into Sonos speakers.
+
+![Explainer for noise floor, speaker-to-speaker signal, PHY errors and network errors](docs/screenshots/explain.webp)
+
+### Lights out
+
+It follows your system's dark mode (or pick Light or Dark), and it fits a phone screen.
+
+![The network map in dark mode](docs/screenshots/dark-map.webp)
+
+Want the whole thing on one page? Here's the [full poster](docs/screenshots/showcase.webp).
+
+### How it works
+
+![How Sonos Analyzer works: four ways in, five steps from finding speakers to the results page, scan history, and safeguards](docs/how-it-works.svg)
 
 ## Quick start with Docker
 
