@@ -90,6 +90,8 @@ class SpeakerDiagnostics:
     household_id: str = ""  # which Sonos system the speaker belongs to (never shown or saved)
     wireless_mode: str = ""  # topology WirelessMode; undocumented, observed 0 wired, 1 Wi-Fi, 3 HT satellite
     response_ms: float | None = None  # median time to open port 1400, measured by the collector
+    response_min_ms: float | None = None
+    response_max_ms: float | None = None
 
 
 @dataclass

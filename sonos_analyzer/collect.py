@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -13,7 +14,7 @@ from sonos_analyzer.fetch import (
     fetch_review,
     fetch_zone_group_state,
     is_reachable,
-    response_time_ms,
+    response_times_ms,
 )
 from sonos_analyzer import network
 from sonos_analyzer.targets import clean_text
@@ -89,9 +90,14 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0, check_netw
         _add_device_descriptions(snapshot, pool)
         if phy_sample_seconds > 0:
             _sample_phy_error_rates(snapshot, pool, phy_sample_seconds)
-        ips_in_order = list(snapshot.speakers)
-        for ip, ms in zip(ips_in_order, pool.map(response_time_ms, ips_in_order)):
-            snapshot.speakers[ip].response_ms = ms
+
+    # Response times are measured last and one speaker at a time: measured during the scan,
+    # they mostly showed the scan's own traffic on the speakers' Wi-Fi channel.
+    for ip, sp in snapshot.speakers.items():
+        times = response_times_ms(ip)
+        if times:
+            sp.response_ms = round(statistics.median(times), 1)
+            sp.response_min_ms, sp.response_max_ms = round(min(times), 1), round(max(times), 1)
         if router is not None:
             try:
                 snapshot.router = router.result()

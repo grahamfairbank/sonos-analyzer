@@ -2,6 +2,16 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-11-16
+
+Fixes from testing 0.6.0, and the Mac download that 0.6.0 is missing.
+
+### Fixed
+
+- Response times were measured during the scan, 12 speakers at once, so speakers sharing a Wi-Fi channel mostly showed the scan's own traffic (about 60 ms instead of 2 to 3 ms). They are now measured after the scan, one speaker at a time: a warm-up connection that isn't counted, then the median of five. Hover a response time for the fastest and slowest tries.
+- The network map now has a key explaining the PHY dot, the noise bars and the response time, and each reading is labeled (PHY, Noise, Response). Readings wrap onto their own line, so model names are no longer cut off.
+- Desktop build: the startup check waits up to 90 seconds and prints the app's log if it fails. The 0.6.0 Mac build failed that check twice on GitHub's Mac machine, although the same code passed in a later test build, so 0.6.0 has no Mac download; this release does. A dry-run mode builds and tests from any branch without attaching anything.
+
 ## [0.6.0] - 2026-11-16
 
 Household overview and network map, plus pre-release firmware and multi-system handling.
@@ -169,6 +179,7 @@ Pilot pre-release of the desktop app.
 
 Original command-line analyzer by David Klein ([soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer)).
 
+[0.6.1]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0-beta.2...v0.4.0

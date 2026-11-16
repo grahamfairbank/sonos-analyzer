@@ -168,7 +168,7 @@ Then open `http://<host>:8400`. Leave the IP field empty to auto-discover, or en
 - Group coordinator: groups led by a speaker on a noisy or older radio when a wired or better-placed member could lead them
 - Older Wi-Fi radios: models Sonos documents without WPA3, so a router change keeps WPA2 available
 - Household overview: counts of speakers, home theater satellites, stereo pairs, home theaters, playing groups and speakers answering on port 1400; the playing groups with the room that leads each; and a network map grouping rooms by how they connect (wired, each Wi-Fi channel, SonosNet)
-- Response time: how long each speaker takes to answer on port 1400 (median of three tries), shown in the speakers table; it never raises a finding, because Wi-Fi power saving makes it jumpy
+- Response time: how long each speaker takes to answer on port 1400 (median of five tries after a warm-up, measured one speaker at a time after the scan), shown in the speakers table and on the map; it never raises a finding, because Wi-Fi power saving makes it jumpy
 - Pre-release firmware: speakers Sonos marks as beta or other test builds are reported as informational, and don't make the rest of the household look out of date
 - Another Sonos system (for example S1 next to S2) answering on the same network is mentioned rather than mixed into the report
 - Network layout: speakers on a different subnet from the rest, and this computer on a different subnet from the speakers (Sonos requires the app and all speakers on one subnet). Home theater surrounds' wider netmask on the soundbar link is not counted as a split

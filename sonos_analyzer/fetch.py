@@ -77,18 +77,31 @@ def soap_request(url: str, action: str, body: str) -> str:
     return _open(req)
 
 
-def response_time_ms(ip: str, tries: int = 3, timeout: float = 2.0) -> float | None:
-    """Median time to open the speaker's port 1400, in milliseconds (None if it never answers)."""
+def response_times_ms(ip: str, tries: int = 5, timeout: float = 2.0) -> list[float]:
+    """Times to open the speaker's port 1400, in milliseconds; empty if it doesn't answer.
+
+    The first connection is a warm-up and isn't counted (it can include the speaker waking
+    its radio or the address lookup); a speaker that doesn't answer it is skipped at once.
+    """
     if not is_allowed_target(ip):
-        return None
-    times = []
-    for _ in range(tries):
+        return []
+
+    def once() -> float | None:
         start = time.perf_counter()
         try:
             with socket.create_connection((ip, DEFAULT_PORT), timeout=timeout):
-                times.append((time.perf_counter() - start) * 1000)
+                return (time.perf_counter() - start) * 1000
         except OSError:
-            continue
+            return None
+
+    if once() is None:
+        return []
+    return [t for t in (once() for _ in range(tries)) if t is not None]
+
+
+def response_time_ms(ip: str, tries: int = 5, timeout: float = 2.0) -> float | None:
+    """Median of response_times_ms (None if the speaker doesn't answer)."""
+    times = response_times_ms(ip, tries, timeout)
     return round(statistics.median(times), 1) if times else None
 
 

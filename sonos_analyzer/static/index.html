@@ -228,11 +228,13 @@
     .netroom.bonded { border: 1.5px dashed var(--low); }
     .netroom .title { font-weight: 600; font-size: 14px; }
     .netroom .title .muted { font-weight: 400; font-size: 12px; margin-left: 6px; }
-    .netsp { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: 13px; padding: 5px 0 0; }
+    .netsp { font-size: 13px; padding: 5px 0 0; }
     .netsp + .netsp { border-top: 1px solid var(--border); margin-top: 5px; }
-    .netsp .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .netsp .how { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
-    .netsp .reads { display: flex; gap: 10px; justify-content: flex-end; font-size: 12px; }
+    .netsp .who { overflow-wrap: anywhere; }
+    .netsp .how { font-size: 12px; color: var(--muted); }
+    .netsp .reads { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12px; margin-top: 3px; }
+    .netsp .reads .k, .legend .k { color: var(--muted); margin-right: 4px; }
+    .netkey { margin-bottom: 12px; border-radius: var(--radius); border: 1px solid var(--border); border-top: 1px solid var(--border); background: var(--surface); }
     .groups { padding: 4px 16px 12px; }
     .groups p { padding: 8px 0 0; }
     .groups .lead { font-weight: 600; }
@@ -288,6 +290,7 @@
       <h2>Network map</h2>
       <p class="muted" style="margin-bottom: 12px; font-size: 13px">Rooms grouped by how their main speaker connects. Speakers on the same Wi-Fi
         channel are probably on the same access point (the speakers don't report which one). Dashed outlines are stereo pairs and home theaters.</p>
+      <div id="netkey" class="legend netkey"></div>
       <div id="netmap" class="netmap"></div>
     </div>
 
@@ -300,7 +303,7 @@
             <th title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors<br><span class="muted">per second</span></th>
             <th title="Background radio noise; worst of the radio's receive chains">Noise floor</th>
             <th title="Packets with errors on the speaker's network connection">Network errors</th>
-            <th class="num" title="How long the speaker took to accept a connection on port 1400 (median of 3 tries). Wi-Fi power saving makes this jumpy, so it never raises a finding.">Response</th>
+            <th class="num" title="How long the speaker took to accept a connection on port 1400: median of 5 tries after a warm-up, measured one speaker at a time after the scan. Wi-Fi power saving makes this jumpy, so it never raises a finding.">Response</th>
           </tr>
         </thead>
         <tbody id="speakers"></tbody>
@@ -618,6 +621,22 @@
       : "";
   }
 
+  const ms = (v) => `${v < 10 ? v.toFixed(1) : fmt(v)} ms`;
+  const responseTitle = (sp) => sp.response_ms == null ? "" :
+    `Time to answer on port 1400: median ${ms(sp.response_ms)}` +
+    (sp.response_min_ms != null ? ` (fastest ${ms(sp.response_min_ms)}, slowest ${ms(sp.response_max_ms)}, 5 tries after a warm-up, measured after the scan)` : "");
+
+  // What each mark on the map means; the same bands as "What these readings mean".
+  $("netkey").replaceChildren(
+    el("span", {}, [el("span", { className: "k", textContent: "PHY" }), "dot: radio errors per second. ",
+      dotLabel({ label: "Normal", tone: "good" }), " under 500/s · ", dotLabel({ label: "High", tone: "warn" }), " 500/s or more · ",
+      dotLabel({ label: "Very high", tone: "bad" }), " far above your other speakers · ", dotLabel({ label: "Not in use", tone: "muted" }), " radio not carrying audio"]),
+    el("span", {}, [el("span", { className: "k", textContent: "Noise" }), "bars: background radio noise. ",
+      meter({ bars: 4, label: "Quiet", tone: "good" }), " −95 dBm or lower · ", meter({ bars: 3, label: "Some noise", tone: "fair" }), " · ",
+      meter({ bars: 2, label: "Noisy", tone: "warn" }), " · ", meter({ bars: 1, label: "Very noisy", tone: "bad" }), " above −85 dBm"]),
+    el("span", {}, [el("span", { className: "k", textContent: "Response" }), "time to answer on port 1400; over 100 ms is highlighted. Hover any reading for its number."]),
+  );
+
   function renderMap(columns) {
     $("map-section").hidden = !columns.length;
     $("netmap").replaceChildren(...columns.map((c) => el("div", { className: "card netcol" }, [
@@ -628,15 +647,17 @@
           textContent: room.bond === "home_theater" ? "Home theater" : "Stereo pair" })] : [])]),
         ...room.speakers.map((sp) => {
           const reads = [];
-          if (sp.phy_level) reads.push(el("span", { title: sp.phy_errors_per_sec == null ? "" : `PHY errors: ${fmt(sp.phy_errors_per_sec)} per second` }, [dotLabel(sp.phy_level)]));
-          if (sp.noise_level) reads.push(el("span", { title: `Noise floor ${sp.noise_floor_dbm} dBm` }, [meter(sp.noise_level)]));
-          if (sp.response_ms != null) reads.push(el("span", { className: sp.response_ms > 100 ? "tone-warn" : "muted", textContent: `${sp.response_ms < 10 ? sp.response_ms.toFixed(1) : fmt(sp.response_ms)} ms`, title: "Time to answer on port 1400" }));
-          const name = room.speakers.length > 1 || sp.name !== room.name ? sp.name : "";
-          const how = [sp.model, sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type : sp.path].filter(Boolean).join(" · ");
+          const label = (k, node, title) => el("span", { title }, [el("span", { className: "k", textContent: k }), node]);
+          if (sp.phy_level) reads.push(label("PHY", dotLabel(sp.phy_level), sp.phy_errors_per_sec == null ? "" : `PHY errors: ${fmt(sp.phy_errors_per_sec)} per second`));
+          if (sp.noise_level) reads.push(label("Noise", meter(sp.noise_level), `Noise floor ${sp.noise_floor_dbm} dBm`));
+          if (sp.response_ms != null) reads.push(label("Response",
+            el("span", { className: sp.response_ms > 100 ? "tone-warn" : "", textContent: ms(sp.response_ms) }), responseTitle(sp)));
+          const named = room.speakers.length > 1 || sp.name !== room.name;
+          const link = sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type : sp.path;
           return el("div", { className: "netsp" }, [
-            el("span", { className: "who", textContent: name || sp.model || "" }),
-            el("span", { className: "reads" }, reads),
-            el("span", { className: "how", textContent: name ? how : (sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type : sp.path) }),
+            el("div", { className: "who" }, named ? [el("strong", { textContent: sp.name, style: "font-weight: 600" }), ` · ${sp.model || ""}`] : [sp.model || ""]),
+            el("div", { className: "how", textContent: link }),
+            el("div", { className: "reads" }, reads),
           ]);
         }),
       ])),
@@ -751,11 +772,11 @@
         el("td", { title: interfaceTitle(sp.interface) }, sp.interface
           ? [dotLabel(sp.interface.level), el("span", { className: "sub", textContent: interfaceSpan(sp.interface) })]
           : [el("span", { className: "muted", textContent: "—" })]),
-        el("td", { className: "num" }, sp.response_ms == null
+        el("td", { className: "num", title: responseTitle(sp) }, sp.response_ms == null
           ? [el("span", { className: "muted", textContent: "—" })]
           : sp.response_slow
-            ? [el("span", { className: "meter tone-warn" }, [el("span", { className: "dot" }), el("span", { className: "word", textContent: `${fmt(sp.response_ms)} ms` })])]
-            : [`${sp.response_ms < 10 ? sp.response_ms.toFixed(1) : fmt(sp.response_ms)} ms`]),
+            ? [el("span", { className: "meter tone-warn" }, [el("span", { className: "dot" }), el("span", { className: "word", textContent: ms(sp.response_ms) })])]
+            : [ms(sp.response_ms)]),
       ]);
       if (member) row.classList.add("member");
       if (next && next.room_id === sp.room_id) row.classList.add("has-members");

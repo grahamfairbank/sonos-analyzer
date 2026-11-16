@@ -1589,6 +1589,8 @@ def _network_map(
                         "noise_level": noise_level(_noise_floor(sp), sp.weak_signal_score),
                         "noise_floor_dbm": _noise_floor(sp),
                         "response_ms": sp.response_ms,
+                        "response_min_ms": sp.response_min_ms,
+                        "response_max_ms": sp.response_max_ms,
                     }
                     for sp in members
                 ],
@@ -1840,6 +1842,8 @@ def _speaker_to_dict(sp: SpeakerDiagnostics, outlier_ips: set[str] = frozenset()
         "phy_window_seconds": round(sp.phy_window_seconds, 2) if sp.phy_window_seconds is not None else None,
         "phy_not_measured": sp.phy_not_measured,
         "response_ms": sp.response_ms,
+        "response_min_ms": sp.response_min_ms,
+        "response_max_ms": sp.response_max_ms,
         "response_slow": sp.response_ms is not None and sp.response_ms > SLOW_RESPONSE_MS,
         "build_type": sp.build_type,
         "prerelease": is_prerelease(sp),
