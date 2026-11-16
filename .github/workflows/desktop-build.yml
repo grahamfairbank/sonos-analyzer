@@ -7,7 +7,13 @@ on:
     types: [published]
   # Manual runs must be started from the release tag (gh workflow run desktop-build.yml --ref vX.Y.Z),
   # so the code built and the commit named in the build provenance are the same.
+  # A dry run (dry_run: true) may start from any branch: it builds and tests but never attaches.
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test only; attach nothing (any branch)"
+        type: boolean
+        default: false
 
 # Build jobs run third-party build tools, so they only get read access;
 # the attach job alone can write to the release.
@@ -15,7 +21,7 @@ permissions:
   contents: read
 
 env:
-  TAG: ${{ github.event.release.tag_name || github.ref_name }}
+  TAG: ${{ github.event.release.tag_name || (inputs.dry_run && 'v0.0.0-dryrun') || github.ref_name }}
 
 jobs:
   build:
@@ -35,7 +41,7 @@ jobs:
         shell: bash
     steps:
       - name: Require a release tag
-        if: github.ref_type != 'tag' && github.event_name != 'release'
+        if: github.ref_type != 'tag' && github.event_name != 'release' && !inputs.dry_run
         run: |
           echo "Start this workflow from a release tag: gh workflow run desktop-build.yml --ref vX.Y.Z" >&2
           exit 1
@@ -101,10 +107,15 @@ jobs:
       - name: Smoke test
         run: |
           "$BIN" --no-browser --port 8400 --idle-timeout 0 > app.log 2>&1 &
-          for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:8400/api/app && break
+          APP_PID=$!
+          # Show the app's own output whenever this step fails.
+          trap 'echo "--- app.log ---"; cat app.log; ps -p $APP_PID >/dev/null && echo "(app still running)" || echo "(app exited)"' ERR
+          started=""
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:8400/api/app; then started=$i; break; fi
             sleep 1
           done
+          echo "Answered after ${started:-no answer in 90} s"
           # Not piped into grep -q: grep exits early, curl then fails writing (exit 23).
           page=$(curl -sf http://127.0.0.1:8400/)
           grep -q "Sonos Analyzer" <<< "$page"
@@ -122,8 +133,9 @@ jobs:
 
   attach:
     needs: build
+    # Never on a dry run.
     # Attach whatever built, so one stuck runner doesn't hold back the other platforms.
-    if: ${{ always() }}
+    if: ${{ always() && !inputs.dry_run }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
