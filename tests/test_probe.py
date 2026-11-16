@@ -1,6 +1,7 @@
 """Background response-time probe: hourly summaries, outages, storage and findings."""
 
 import json
+import sys
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -59,7 +60,8 @@ class ProberTests(unittest.TestCase):
         feed(self.p, "A", "192.168.50.10", [2.0] * 65)
         self.p.save()
         path = Path(self.dir.name) / probe.FILE_NAME
-        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        if sys.platform != "win32":  # Windows has no POSIX permissions
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         again = probe.Prober(self.dir.name, 60)
         self.assertIn("A", again.speakers)
         again.clear()
