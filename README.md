@@ -167,6 +167,10 @@ Then open `http://<host>:8400`. Leave the IP field empty to auto-discover, or en
 - Trueplay tuning state per room (portables, Port, Boost and Amp are left out)
 - Group coordinator: groups led by a speaker on a noisy or older radio when a wired or better-placed member could lead them
 - Older Wi-Fi radios: models Sonos documents without WPA3, so a router change keeps WPA2 available
+- Household overview: counts of speakers, home theater satellites, stereo pairs, home theaters, playing groups and speakers answering on port 1400; the playing groups with the room that leads each; and a network map grouping rooms by how they connect (wired, each Wi-Fi channel, SonosNet)
+- Response time: how long each speaker takes to answer on port 1400 (median of three tries), shown in the speakers table; it never raises a finding, because Wi-Fi power saving makes it jumpy
+- Pre-release firmware: speakers Sonos marks as beta or other test builds are reported as informational, and don't make the rest of the household look out of date
+- Another Sonos system (for example S1 next to S2) answering on the same network is mentioned rather than mixed into the report
 - Network layout: speakers on a different subnet from the rest, and this computer on a different subnet from the speakers (Sonos requires the app and all speakers on one subnet). Home theater surrounds' wider netmask on the soundbar link is not counted as a split
 - Double NAT: if your router answers UPnP, it is asked for its internet-side address; a private address means another router sits in front of it, and 100.64.x means your provider shares its public address (both informational). Routers with UPnP off don't answer, and then nothing is reported. A public address is never shown or stored
 - Monitoring (server): background scans every 15 minutes and 30 days of history, reporting missing speakers, unexpected restarts, firmware updates, IP, group coordinator and spanning-tree root changes, and network errors since the last scan

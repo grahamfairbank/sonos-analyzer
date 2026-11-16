@@ -29,6 +29,7 @@ class CollectTests(unittest.TestCase):
             "fetch_zone_group_state": zgs,
             "fetch_device_description": lambda ip: hh.device_description(self.fake[ip]),
             "fetch_ath_status": lambda ip: hh.ath_status(self.fake[ip]),
+            "response_time_ms": lambda ip: 4.0,
         }
         for name, fn in patches.items():
             p = mock.patch.object(collect, name, side_effect=fn)

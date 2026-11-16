@@ -14,6 +14,7 @@ FIRMWARE_STATUS = {
     "newest": "Current: main line",
     "maintenance": "Current: legacy-product line",
     "unconfirmed": "Older line, not confirmed current",
+    "prerelease": "Pre-release (beta) build",
     "behind": "Missed an update",
 }
 
@@ -53,7 +54,7 @@ def print_terminal(report: AnalysisReport) -> None:
     print("Firmware")
     print("-" * 72)
     for group in report.firmware:
-        note = {"newest": " - main line", "maintenance": " - legacy-product line", "unconfirmed": " - older line, not confirmed current", "behind": " - missed an update"}.get(group["status"], "")
+        note = {"newest": " - main line", "maintenance": " - legacy-product line", "unconfirmed": " - older line, not confirmed current", "behind": " - missed an update", "prerelease": " - pre-release build"}.get(group["status"], "")
         print(f"  {group['version']:<14} {group['count']:>2} speaker(s): {', '.join(group['models'])}{note}")
     print()
 
@@ -108,6 +109,10 @@ def report_payload(report: AnalysisReport) -> dict:
         "fetch_errors": report.snapshot.fetch_errors,
         "phy_sample": asdict(report.snapshot.phy_sample) if report.snapshot.phy_sample else None,
         "history": report.history,
+        "summary": report.summary,
+        "groups": report.groups,
+        "network_map": report.network_map,
+        "other_systems": report.snapshot.other_systems,
     }
 
 
@@ -145,6 +150,27 @@ def render_html(report: AnalysisReport) -> str:
         for w in report.wireless
     )
     rec_items = "".join(f"<li>{escape(rec)}</li>" for rec in report.recommendations)
+    s = report.summary or {}
+    overview = " · ".join(
+        part for part in (
+            f"{s.get('satellites', 0)} home theater satellite(s)" if s else "",
+            f"{s.get('stereo_pairs', 0)} stereo pair(s)" if s else "",
+            f"{s.get('home_theaters', 0)} home theater(s)" if s else "",
+            f"{s.get('playing_groups', 0)} playing group(s)" if s else "",
+            f"{s['reachable']}/{s['speakers']} answering on port 1400" if s.get("reachable_checked") else "",
+        ) if part
+    )
+    together = [g for g in report.groups if g["room_count"] > 1]
+    group_items = "".join(
+        f"<li><strong>{escape(g['coordinator'])}</strong> leads: {escape(', '.join(g['rooms'][1:]))}</li>" for g in together
+    ) or "<li>No rooms are grouped right now.</li>"
+    map_rows = "".join(
+        "<tr>"
+        f"<td>{escape(c['title'])}</td>"
+        f"<td>{escape('; '.join(r['name'] + (' (' + ', '.join(sp['name'] for sp in r['speakers']) + ')' if len(r['speakers']) > 1 else '') for r in c['rooms']))}</td>"
+        "</tr>"
+        for c in report.network_map
+    )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -171,12 +197,23 @@ def render_html(report: AnalysisReport) -> str:
 <body>
   <h1>Sonos household analysis</h1>
   <p class="meta">{report.speaker_count} speaker(s) in {report.room_count} room(s) · Generated {escape(report.generated_at)}</p>
+  <p class="meta">{escape(overview)}</p>
+
+  <h2>Network map</h2>
+  <p class="meta">Rooms grouped by how their main speaker connects; speakers on one Wi-Fi channel are probably on one access point.</p>
+  <table>
+    <thead><tr><th>Connection</th><th>Rooms</th></tr></thead>
+    <tbody>{map_rows}</tbody>
+  </table>
+
+  <h2>Playing groups</h2>
+  <ul>{group_items}</ul>
 
   <h2>Speakers</h2>
   <table>
     <thead>
       <tr>
-        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>Noise floor</th><th>Network errors</th><th>RX drop %</th>
+        <th>Room</th><th>Role</th><th>IP</th><th>Model</th><th>Connection</th><th>Firmware</th><th>PHY errors per second</th><th>Noise floor</th><th>Network errors</th><th>RX drop %</th><th>Response</th>
       </tr>
     </thead>
     <tbody>{speaker_rows}</tbody>
@@ -287,6 +324,7 @@ def _html_speaker_row(sp: dict) -> str:
         f"<td>{_noise_cell(sp)}</td>"
         f"<td>{_interface_cell(sp)}</td>"
         f"<td>{drop if drop is not None else ''}</td>"
+        f"<td>{'' if sp.get('response_ms') is None else str(sp['response_ms']) + ' ms'}</td>"
         "</tr>"
     )
 

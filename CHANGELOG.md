@@ -2,6 +2,20 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Household overview: a second row of tiles (speakers with home theater satellites, rooms, stereo pairs, home theaters, playing groups, speakers answering on port 1400), a Playing groups section, and a Network map grouping rooms by connection (wired, each Wi-Fi channel, SonosNet) with each speaker's readings. Speakers on one Wi-Fi channel are labeled as probably one access point, because speakers don't report which access point they use.
+- Response time: each speaker's median time to answer on port 1400, in the speakers table and the map. Informational only.
+- Home theater satellites show their link type from the speaker's undocumented WirelessMode value (observed: Wi-Fi-only or SonosNet-capable satellite link).
+- Another Sonos system answering on the network (for example an S1 system) is reported as informational and kept out of the report, which covers the system with the most speakers.
+
+### Fixed
+
+- Pre-release firmware (Sonos's BuildType other than "release", or a version such as 99.0-83023-main_snapshot_05_release) is reported as informational and no longer makes the newest release look out of date. Its build number is now read correctly.
+- Long notes in finding chips wrap instead of widening the page on phones.
+
 ## [0.5.0] - 2026-11-13
 
 Network layout and double NAT checks, plus fixes from user reports.

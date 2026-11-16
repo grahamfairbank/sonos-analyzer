@@ -65,6 +65,9 @@ class AnalysisReport:
     wireless: list[dict] = field(default_factory=list)
     connections: dict = field(default_factory=dict)
     history: dict | None = None
+    summary: dict = field(default_factory=dict)
+    groups: list[dict] = field(default_factory=list)
+    network_map: list[dict] = field(default_factory=list)
 
 
 def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> AnalysisReport:
@@ -87,6 +90,7 @@ def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> Analysi
     findings += _coordinator_findings(speakers, outlier_ips)
     findings += _radio_generation_findings(speakers)
     findings += _network_findings(snapshot, speakers)
+    findings += _other_system_findings(snapshot)
     if changes:
         findings += _history_findings(changes)
 
@@ -113,6 +117,9 @@ def analyze(snapshot: HouseholdSnapshot, changes: dict | None = None) -> Analysi
         wireless=_wireless_map(speakers, outlier_ips),
         connections=_connections(speakers),
         history=_history_summary(changes),
+        summary=_summary(speakers, rooms),
+        groups=_playing_groups(speakers, rooms),
+        network_map=_network_map(speakers, rooms, outlier_ips),
     )
 
 
@@ -313,7 +320,26 @@ def _line(version: str) -> str:
 
 def _build(version: str) -> str:
     """Build number after the dash, e.g. '82170'; shared by every line of one Sonos release."""
-    return version.rsplit("-", 1)[1] if "-" in version else ""
+    match = re.match(r"^[^-]*-(\d+)", version or "")
+    return match.group(1) if match else ""
+
+
+_RELEASE_VERSION = re.compile(r"^\d+(?:\.\d+)*-\d+$")
+
+
+def is_prerelease(sp: SpeakerDiagnostics) -> bool:
+    """Firmware Sonos marks as not a release (BuildType), or a version with a build suffix
+    such as 99.0-83023-main_snapshot_05_release."""
+    if sp.build_type:
+        return sp.build_type.strip().lower() != "release"
+    version = (sp.software_version or "").strip()
+    return bool(version) and bool(re.match(r"^\d", version)) and not _RELEASE_VERSION.match(version)
+
+
+def _released(speakers: list[SpeakerDiagnostics]) -> list[SpeakerDiagnostics]:
+    """Speakers on release firmware; all of them when every speaker runs a pre-release."""
+    released = [sp for sp in speakers if not is_prerelease(sp)]
+    return released or speakers
 
 
 def _firmware_lines(speakers: list[SpeakerDiagnostics]) -> dict:
@@ -322,9 +348,9 @@ def _firmware_lines(speakers: list[SpeakerDiagnostics]) -> dict:
     A healthy household runs one or two versions: the main line for current models and,
     often, a maintenance line that Sonos keeps older models on. Anything else is an outlier.
     """
-    versions = {sp.software_version for sp in speakers if sp.software_version}
+    versions = {sp.software_version for sp in _released(speakers) if sp.software_version}
     if not versions:
-        return {"main": "", "maintenance": "", "same_release": False}
+        return {"main": "", "maintenance": "", "unconfirmed": "", "same_release": False}
     main = max(versions, key=_version_tuple)
     newest_by_line: dict[str, str] = {}
     for v in versions:
@@ -358,7 +384,8 @@ def _and_list(items: list[str]) -> str:
 def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
     lines = _firmware_lines(speakers)
     newest_by_model: dict[str, tuple[int, ...]] = {}
-    for sp in speakers:
+    prerelease = {sp.software_version for sp in speakers if is_prerelease(sp)} if _released(speakers) is not speakers else set()
+    for sp in _released(speakers):
         if key := _model_key(sp):
             newest_by_model[key] = max(newest_by_model.get(key, ()), _version_tuple(sp.software_version))
 
@@ -370,9 +397,12 @@ def _firmware_summary(speakers: list[SpeakerDiagnostics]) -> list[dict]:
     for version, members in sorted(groups.items(), key=lambda kv: _version_tuple(kv[0]), reverse=True):
         # The same model on a newer version elsewhere means this one missed an update.
         model_behind = [
-            sp for sp in members if _model_key(sp) and _version_tuple(version) < newest_by_model[_model_key(sp)]
+            sp for sp in members
+            if _model_key(sp) in newest_by_model and _version_tuple(version) < newest_by_model[_model_key(sp)]
         ]
-        if version == lines["main"] and not model_behind:
+        if version in prerelease:
+            status = "prerelease"
+        elif version == lines["main"] and not model_behind:
             status = "newest"
         elif version == lines["maintenance"] and not model_behind:
             status = "maintenance"
@@ -475,6 +505,29 @@ def _firmware_findings(
                     [by_ip[s["ip"]] for s in maintenance["speakers"]],
                     lambda sp: f"{_model(sp)} on {sp.software_version}",
                 ),
+            )
+        )
+
+    pre = [sp for sp in speakers if is_prerelease(sp)]
+    if pre:
+        kinds = sorted({sp.build_type.lower() for sp in pre if sp.build_type})
+        kind = f" (Sonos marks it {', '.join(repr(k) for k in kinds)})" if kinds else ""
+        compared = (
+            "The other speakers are compared with the newest release version instead."
+            if len(pre) < len(speakers)
+            else "Every speaker runs it, so the firmware check compares them with each other."
+        )
+        findings.append(
+            Finding(
+                severity="info",
+                category="firmware",
+                title=f"{len(pre)} speaker(s) run pre-release firmware",
+                detail=(
+                    f"This firmware is a test build, not a public release{kind}, usually from Sonos's beta program. "
+                    f"{compared} Pre-release builds can behave differently from public ones, so mention it if you "
+                    "contact Sonos support."
+                ),
+                affected=_affected(pre, lambda sp: sp.software_version),
             )
         )
 
@@ -1431,6 +1484,123 @@ def _network_findings(snapshot: HouseholdSnapshot, speakers: list[SpeakerDiagnos
     return findings
 
 
+# --- Household overview: counts, playing groups, network map -------------------
+
+SLOW_RESPONSE_MS = 100
+# Topology WirelessMode is undocumented; these are the values observed on real systems.
+WIRELESS_MODES = {
+    "0": "Wired",
+    "1": "Wi-Fi",
+    "2": "Satellite link (SonosNet-capable)",
+    "3": "Satellite link (Wi-Fi only)",
+}
+
+
+def _other_system_findings(snapshot: HouseholdSnapshot) -> list[Finding]:
+    findings = []
+    for other in snapshot.other_systems:
+        gen = {"1": "S1", "2": "S2"}.get(other.get("sw_gen", ""), "")
+        rooms = other.get("rooms") or []
+        findings.append(
+            Finding(
+                severity="info",
+                category="network",
+                title=f"Another Sonos system{f' ({gen})' if gen else ''} answered and isn't in this report",
+                detail=(
+                    f"{other['speaker_count']} speaker(s) belong to a different Sonos system"
+                    + (f" ({', '.join(rooms)})" if rooms else "")
+                    + ". This report covers the system with the most speakers. To check the other one, scan with one "
+                    "of its speakers' IP addresses typed in."
+                ),
+            )
+        )
+    return findings
+
+
+def _primary(members: list[SpeakerDiagnostics]) -> SpeakerDiagnostics:
+    return next((sp for sp in members if sp.role in ("Front", "Left", "")), members[0])
+
+
+def _summary(speakers: list[SpeakerDiagnostics], rooms: dict[str, list[SpeakerDiagnostics]]) -> dict:
+    groups = {sp.group_id for sp in speakers if sp.group_id and not sp.is_invisible}
+    gens = {sp.sw_gen for sp in speakers if sp.sw_gen}
+    return {
+        "speakers": len(speakers),
+        "satellites": sum(1 for sp in speakers if sp.bond == "home_theater" and sp.role not in ("Front", "")),
+        "stereo_pairs": sum(1 for m in rooms.values() if any(sp.bond == "stereo_pair" for sp in m)),
+        "home_theaters": sum(1 for m in rooms.values() if any(sp.bond == "home_theater" for sp in m)),
+        "playing_groups": len(groups),
+        "reachable": sum(1 for sp in speakers if sp.response_ms is not None),
+        "reachable_checked": any(sp.response_ms is not None for sp in speakers),
+        "system": {"1": "S1", "2": "S2"}.get(gens.pop(), "") if len(gens) == 1 else "",
+    }
+
+
+def _playing_groups(speakers: list[SpeakerDiagnostics], rooms: dict[str, list[SpeakerDiagnostics]]) -> list[dict]:
+    """Rooms playing together, with the room that leads each group."""
+    by_uid = {sp.local_uid: sp for sp in speakers if sp.local_uid}
+    groups: dict[str, list[str]] = {}
+    for key, members in rooms.items():
+        lead = _primary(members)
+        if lead.group_id:
+            groups.setdefault(lead.group_id, []).append(key)
+    result = []
+    for group_id, keys in groups.items():
+        coordinator = by_uid.get(next((rooms[k][0].coordinator_uid for k in keys if rooms[k][0].coordinator_uid), ""))
+        lead_room = _room_name(coordinator) if coordinator else ""
+        names = sorted({_room_name(rooms[k][0]) for k in keys}, key=lambda n: (n != lead_room, n.lower()))
+        result.append({"coordinator": lead_room, "rooms": names, "room_count": len(names)})
+    return sorted(result, key=lambda g: (-g["room_count"], g["coordinator"].lower()))
+
+
+def _network_map(
+    speakers: list[SpeakerDiagnostics], rooms: dict[str, list[SpeakerDiagnostics]], outlier_ips: set[str]
+) -> list[dict]:
+    """Rooms grouped by how their main speaker connects: wired, each Wi-Fi channel, or SonosNet."""
+    columns: dict[str, dict] = {}
+    for members in rooms.values():
+        lead = _primary(members)
+        use = _radio_use(lead)
+        path = _path(lead)
+        if path == "wired":
+            key, title, note, order = "wired", "Wired", "Ethernet", (0, 0)
+        elif use == "wifi":
+            freq = _active_freq(lead)
+            band, ch = _band(freq), _channel(freq)
+            key, title, order = f"wifi-{freq}", f"Wi-Fi {band} · ch {ch}" if ch else "Wi-Fi", (1, ch or 0)
+            note = "Probably one access point: speakers on the same channel"
+        elif path == "sonosnet":
+            key, title, note, order = "sonosnet", "SonosNet", "Speakers' own mesh", (2, 0)
+        else:
+            key, title, note, order = "other", "Other", "Connection not reported", (3, 0)
+        column = columns.setdefault(key, {"key": key, "title": title, "note": note, "order": order, "rooms": []})
+        column["rooms"].append(
+            {
+                "name": _room_name(lead),
+                "bond": next((sp.bond for sp in members if sp.bond), ""),
+                "speakers": [
+                    {
+                        "name": sp.role or sp.zone_name,
+                        "model": sp.model_name,
+                        "path": _connection_summary(sp),
+                        "link_type": WIRELESS_MODES.get(sp.wireless_mode, ""),
+                        "phy_level": phy_level(sp, outlier_ips),
+                        "phy_errors_per_sec": _round_rate(sp.phy_error_rate),
+                        "noise_level": noise_level(_noise_floor(sp), sp.weak_signal_score),
+                        "noise_floor_dbm": _noise_floor(sp),
+                        "response_ms": sp.response_ms,
+                    }
+                    for sp in members
+                ],
+            }
+        )
+    ordered = sorted(columns.values(), key=lambda c: c["order"])
+    for column in ordered:
+        column.pop("order")
+        column["rooms"].sort(key=lambda r: r["name"].lower())
+    return ordered
+
+
 # --- Changes between scans ------------------------------------------------
 
 
@@ -1669,4 +1839,9 @@ def _speaker_to_dict(sp: SpeakerDiagnostics, outlier_ips: set[str] = frozenset()
         "phy_window_errors": sp.phy_window_errors,
         "phy_window_seconds": round(sp.phy_window_seconds, 2) if sp.phy_window_seconds is not None else None,
         "phy_not_measured": sp.phy_not_measured,
+        "response_ms": sp.response_ms,
+        "response_slow": sp.response_ms is not None and sp.response_ms > SLOW_RESPONSE_MS,
+        "build_type": sp.build_type,
+        "prerelease": is_prerelease(sp),
+        "link_type": WIRELESS_MODES.get(sp.wireless_mode, ""),
     }

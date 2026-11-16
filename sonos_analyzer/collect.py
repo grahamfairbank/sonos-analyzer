@@ -13,6 +13,7 @@ from sonos_analyzer.fetch import (
     fetch_review,
     fetch_zone_group_state,
     is_reachable,
+    response_time_ms,
 )
 from sonos_analyzer import network
 from sonos_analyzer.targets import clean_text
@@ -64,6 +65,10 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0, check_netw
         covered.update(review)
         reachable.append(ip)
 
+    # Several Sonos systems can answer on one network (for example S1 next to S2). Report the one
+    # with the most speakers, and only mention the others.
+    review_maps, reachable = _keep_main_system(snapshot, review_maps, reachable)
+
     group_maps = []
     group_errors = []
     for ip in reachable:
@@ -84,6 +89,9 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0, check_netw
         _add_device_descriptions(snapshot, pool)
         if phy_sample_seconds > 0:
             _sample_phy_error_rates(snapshot, pool, phy_sample_seconds)
+        ips_in_order = list(snapshot.speakers)
+        for ip, ms in zip(ips_in_order, pool.map(response_time_ms, ips_in_order)):
+            snapshot.speakers[ip].response_ms = ms
         if router is not None:
             try:
                 snapshot.router = router.result()
@@ -95,6 +103,35 @@ def collect_snapshot(ips: list[str], phy_sample_seconds: float = 5.0, check_netw
         snapshot.analyzer_addresses = {ip: network.source_address(ip) for ip in snapshot.speakers}
 
     return snapshot
+
+
+def _system_of(review: dict) -> str:
+    ids = [sp.household_id for sp in review.values() if sp.household_id]
+    return max(set(ids), key=ids.count) if ids else ""
+
+
+def _keep_main_system(snapshot: HouseholdSnapshot, review_maps: list[dict], reachable: list[str]) -> tuple[list, list]:
+    systems: dict[str, dict] = {}
+    for review in review_maps:
+        for ip, sp in review.items():
+            systems.setdefault(sp.household_id, {})[ip] = sp
+    if len(systems) < 2:
+        return review_maps, reachable
+    main = max(systems, key=lambda hh: len(systems[hh]))
+    for hh, members in systems.items():
+        if hh == main:
+            continue
+        gens = {sp.sw_gen for sp in members.values() if sp.sw_gen}
+        snapshot.other_systems.append(
+            {
+                "sw_gen": gens.pop() if len(gens) == 1 else "",
+                "speaker_count": len(members),
+                "rooms": sorted({sp.zone_name for sp in members.values() if sp.zone_name})[:8],
+            }
+        )
+    kept = [(review, ip) for review, ip in zip(review_maps, reachable) if _system_of(review) == main]
+    maps = [{ip: sp for ip, sp in review.items() if sp.household_id == main} for review, _ip in kept]
+    return maps, [ip for _review, ip in kept]
 
 
 def _add_device_descriptions(snapshot: HouseholdSnapshot, pool: ThreadPoolExecutor) -> None:

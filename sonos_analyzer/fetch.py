@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import socket
+import statistics
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -73,6 +75,21 @@ def soap_request(url: str, action: str, body: str) -> str:
         method="POST",
     )
     return _open(req)
+
+
+def response_time_ms(ip: str, tries: int = 3, timeout: float = 2.0) -> float | None:
+    """Median time to open the speaker's port 1400, in milliseconds (None if it never answers)."""
+    if not is_allowed_target(ip):
+        return None
+    times = []
+    for _ in range(tries):
+        start = time.perf_counter()
+        try:
+            with socket.create_connection((ip, DEFAULT_PORT), timeout=timeout):
+                times.append((time.perf_counter() - start) * 1000)
+        except OSError:
+            continue
+    return round(statistics.median(times), 1) if times else None
 
 
 def is_reachable(ip: str, timeout: float = 2.0) -> bool:

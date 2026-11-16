@@ -85,6 +85,11 @@ class SpeakerDiagnostics:
     phy_window_seconds: float | None = None  # window length, from reset read to second read
     phy_not_measured: str = ""  # why there is no rate, when the speaker has a radio counter
     netmask: str = ""  # br0 netmask from ifconfig, e.g. 255.255.255.0
+    build_type: str = ""  # Sonos's own BuildType: "release", or e.g. "beta"/"alpha" for pre-release firmware
+    sw_gen: str = ""  # software generation: "1" = S1, "2" = S2
+    household_id: str = ""  # which Sonos system the speaker belongs to (never shown or saved)
+    wireless_mode: str = ""  # topology WirelessMode; undocumented, observed 0 wired, 1 Wi-Fi, 3 HT satellite
+    response_ms: float | None = None  # median time to open port 1400, measured by the collector
 
 
 @dataclass
@@ -118,6 +123,8 @@ class HouseholdSnapshot:
     source_ips: list[str] = field(default_factory=list)
     fetch_errors: list[str] = field(default_factory=list)
     phy_sample: PhySample | None = None
+    # Other Sonos systems that answered but aren't in this report: {"sw_gen", "speaker_count", "rooms"}
+    other_systems: list[dict] = field(default_factory=list)
     # speaker IP -> the local address this computer used to reach it (empty when not checked)
     analyzer_addresses: dict[str, str] = field(default_factory=dict)
     router: RouterCheck | None = None
@@ -214,6 +221,7 @@ def _parse_zone_member(member: ET.Element, coordinator: str, group_id: str) -> S
         behind_wifi_extender=attrib.get("BehindWifiExtender", "0") == "1",
         room_calibration_state=attr("RoomCalibrationState"),
         boot_seq=attr("BootSeq"),
+        wireless_mode=attr("WirelessMode") if re.fullmatch(r"[0-9]{1,2}", attr("WirelessMode")) else "",
         airplay_enabled=attrib.get("AirPlayEnabled", "0") == "1",
         is_invisible=attrib.get("Invisible", "0") == "1",
         channel_map_set=channel_map,
@@ -301,6 +309,9 @@ def _parse_support_block(block: ET.Element) -> SpeakerDiagnostics | None:
         local_uid=zp_text("LocalUID"),
         software_version=zp_text("SoftwareVersion"),
         hardware_version=zp_text("HardwareVersion"),
+        build_type=zp_text("BuildType")[:20],
+        sw_gen=zp_text("SWGen")[:3],
+        household_id=zp_text("HouseholdControlID")[:120],
     )
 
     wireless = block.find("Wireless/WirelessInfo")

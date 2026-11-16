@@ -137,7 +137,7 @@
     .finding .head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
     .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
     .chip {
-      font-size: 12px; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+      font-size: 12px; padding: 3px 9px; border-radius: 999px; max-width: 100%; overflow-wrap: anywhere;
       background: var(--bg); border: 1px solid var(--border); color: var(--text);
     }
     .chip .note { color: var(--muted); margin-left: 6px; }
@@ -217,6 +217,26 @@
     .theme-switch button + button { border-left: 1px solid var(--border); }
     .theme-switch button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
 
+    .tiles.quiet .tile { padding: 10px 14px; background: transparent; }
+    .tiles.quiet .tile .value { font-size: 20px; color: var(--muted); }
+    .tile .label .sub { display: block; }
+
+    .netmap { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 12px; align-items: start; }
+    .netcol { padding: 12px; }
+    .netcol > .muted { font-size: 12px; }
+    .netroom { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin-top: 8px; }
+    .netroom.bonded { border: 1.5px dashed var(--low); }
+    .netroom .title { font-weight: 600; font-size: 14px; }
+    .netroom .title .muted { font-weight: 400; font-size: 12px; margin-left: 6px; }
+    .netsp { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font-size: 13px; padding: 5px 0 0; }
+    .netsp + .netsp { border-top: 1px solid var(--border); margin-top: 5px; }
+    .netsp .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .netsp .how { grid-column: 1 / -1; font-size: 12px; color: var(--muted); }
+    .netsp .reads { display: flex; gap: 10px; justify-content: flex-end; font-size: 12px; }
+    .groups { padding: 4px 16px 12px; }
+    .groups p { padding: 8px 0 0; }
+    .groups .lead { font-weight: 600; }
+
     [hidden] { display: none !important; }
     @media (max-width: 640px) { form { grid-template-columns: 1fr; } }
   </style>
@@ -261,7 +281,15 @@
       </span>
     </div>
     <div id="tiles" class="tiles"></div>
+    <div id="household-tiles" class="tiles quiet"></div>
     <div id="fetch-errors" class="card notice" hidden></div>
+
+    <div id="map-section">
+      <h2>Network map</h2>
+      <p class="muted" style="margin-bottom: 12px; font-size: 13px">Rooms grouped by how their main speaker connects. Speakers on the same Wi-Fi
+        channel are probably on the same access point (the speakers don't report which one). Dashed outlines are stereo pairs and home theaters.</p>
+      <div id="netmap" class="netmap"></div>
+    </div>
 
     <h2>Speakers</h2>
     <div class="card table-wrap">
@@ -272,6 +300,7 @@
             <th title="Radio signals the speaker could not decode, per second, measured during the scan">PHY errors<br><span class="muted">per second</span></th>
             <th title="Background radio noise; worst of the radio's receive chains">Noise floor</th>
             <th title="Packets with errors on the speaker's network connection">Network errors</th>
+            <th class="num" title="How long the speaker took to accept a connection on port 1400 (median of 3 tries). Wi-Fi power saving makes this jumpy, so it never raises a finding.">Response</th>
           </tr>
         </thead>
         <tbody id="speakers"></tbody>
@@ -323,6 +352,11 @@
       <summary id="info-summary"></summary>
       <div id="info-list" class="body"></div>
     </details>
+
+    <div id="groups-section">
+      <h2>Playing groups</h2>
+      <div id="groups" class="card groups"></div>
+    </div>
 
     <h2>Radio channels</h2>
     <div class="card table-wrap">
@@ -383,7 +417,7 @@
     });
   }
   const SEVERITIES = ["high", "medium", "low", "info", "ok"];
-  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: legacy-product line", unconfirmed: "Older line, not confirmed current", behind: "Missed an update" };
+  const FIRMWARE_STATUS = { newest: "Current: main line", maintenance: "Current: legacy-product line", unconfirmed: "Older line, not confirmed current", behind: "Missed an update", prerelease: "Pre-release (beta) build" };
   const fmt = (n) => Math.round(n).toLocaleString();
   const utcTime = (iso) => iso ? new Date(iso).toISOString().slice(11, 19) : "";
   // What the PHY number is based on, for each speaker.
@@ -584,6 +618,45 @@
       : "";
   }
 
+  function renderMap(columns) {
+    $("map-section").hidden = !columns.length;
+    $("netmap").replaceChildren(...columns.map((c) => el("div", { className: "card netcol" }, [
+      el("h3", { textContent: c.title }),
+      el("p", { className: "muted", textContent: `${c.note} · ${c.rooms.length} room${c.rooms.length === 1 ? "" : "s"}` }),
+      ...c.rooms.map((room) => el("div", { className: `netroom${room.bond ? " bonded" : ""}` }, [
+        el("div", { className: "title" }, [room.name, ...(room.bond ? [el("span", { className: "muted",
+          textContent: room.bond === "home_theater" ? "Home theater" : "Stereo pair" })] : [])]),
+        ...room.speakers.map((sp) => {
+          const reads = [];
+          if (sp.phy_level) reads.push(el("span", { title: sp.phy_errors_per_sec == null ? "" : `PHY errors: ${fmt(sp.phy_errors_per_sec)} per second` }, [dotLabel(sp.phy_level)]));
+          if (sp.noise_level) reads.push(el("span", { title: `Noise floor ${sp.noise_floor_dbm} dBm` }, [meter(sp.noise_level)]));
+          if (sp.response_ms != null) reads.push(el("span", { className: sp.response_ms > 100 ? "tone-warn" : "muted", textContent: `${sp.response_ms < 10 ? sp.response_ms.toFixed(1) : fmt(sp.response_ms)} ms`, title: "Time to answer on port 1400" }));
+          const name = room.speakers.length > 1 || sp.name !== room.name ? sp.name : "";
+          const how = [sp.model, sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type : sp.path].filter(Boolean).join(" · ");
+          return el("div", { className: "netsp" }, [
+            el("span", { className: "who", textContent: name || sp.model || "" }),
+            el("span", { className: "reads" }, reads),
+            el("span", { className: "how", textContent: name ? how : (sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type : sp.path) }),
+          ]);
+        }),
+      ])),
+    ])));
+  }
+
+  function renderGroups(groups) {
+    $("groups-section").hidden = !groups.length;
+    const together = groups.filter((g) => g.room_count > 1), alone = groups.filter((g) => g.room_count === 1);
+    $("groups").replaceChildren(
+      ...together.map((g) => el("p", {}, [
+        el("span", { className: "lead", textContent: g.coordinator }), el("span", { className: "muted", textContent: " leads · " }),
+        g.rooms.slice(1).join(", "), el("span", { className: "muted", textContent: ` (${g.room_count} rooms)` }),
+      ])),
+      ...(alone.length ? [el("p", { className: "muted", textContent: together.length
+        ? `${alone.length} other room${alone.length === 1 ? "" : "s"} playing on ${alone.length === 1 ? "its" : "their"} own.`
+        : `All ${alone.length} rooms are playing on their own; none are grouped right now.` })] : []),
+    );
+  }
+
   let lastGenerated = null;
   function renderMonitoring(report) {
     const m = report.monitoring || {}, h = report.history;
@@ -620,12 +693,23 @@
         el("div", { className: "label", textContent: label }),
       ]);
     $("tiles").replaceChildren(
-      tile(report.speaker_count, report.speaker_count === 1 ? "Speaker" : "Speakers"),
-      tile(report.room_count, report.room_count === 1 ? "Room" : "Rooms"),
       tile(counts.high, "High severity", counts.high ? "high" : ""),
       tile(counts.medium, "Medium severity", counts.medium ? "medium" : ""),
       tile(counts.low, "Low severity", counts.low ? "low" : "")
     );
+    const s = report.summary || {};
+    const plural = (n, one, many) => `${n === 1 ? one : many}`;
+    const quiet = [
+      tile(report.speaker_count, `${plural(report.speaker_count, "Speaker", "Speakers")}${s.system ? ` · Sonos ${s.system}` : ""}`
+        + (s.satellites ? ` (${s.satellites} home theater satellite${s.satellites === 1 ? "" : "s"})` : "")),
+      tile(report.room_count, plural(report.room_count, "Room", "Rooms")),
+    ];
+    if (s.stereo_pairs != null) quiet.push(
+      tile(s.stereo_pairs, plural(s.stereo_pairs, "Stereo pair", "Stereo pairs")),
+      tile(s.home_theaters, plural(s.home_theaters, "Home theater", "Home theaters")),
+      tile(s.playing_groups, plural(s.playing_groups, "Playing group", "Playing groups")));
+    if (s.reachable_checked) quiet.push(tile(`${s.reachable}/${s.speakers}`, "Answering on port 1400"));
+    $("household-tiles").replaceChildren(...quiet);
 
     const errors = report.fetch_errors || [];
     $("fetch-errors").hidden = !errors.length;
@@ -653,7 +737,8 @@
           : [el("strong", { textContent: sp.room_name || "—" }),
              el("span", { className: "sub", textContent: bonded ? `${kind} · ${sp.role}` : "" })]),
         el("td", {}, [sp.model_name || "—", el("code", { className: "sub", textContent: sp.ip_address })]),
-        el("td", {}, [sp.connection_summary, el("span", { className: "sub", textContent: wired })]),
+        el("td", {}, [sp.connection_summary, el("span", { className: "sub", textContent: wired || (sp.link_type && sp.link_type.startsWith("Satellite") ? sp.link_type.replace("Satellite link", "Link") : ""),
+          title: sp.link_type && !wired ? "From the speaker's WirelessMode, which Sonos doesn't document; this label is based on observed values." : "" })]),
         el("td", {}, [sp.display_version || sp.software_version || "—",
           el("span", { className: "sub", textContent: sp.display_version ? sp.software_version : "" })]),
         el("td", { className: sp.trueplay && sp.trueplay !== "not applicable" ? "" : "muted", textContent: sp.trueplay === "tuned" ? "Tuned" : sp.trueplay === "not tuned" ? "Not tuned" : sp.trueplay === "not applicable" ? "Not applicable" : "—" }),
@@ -666,6 +751,11 @@
         el("td", { title: interfaceTitle(sp.interface) }, sp.interface
           ? [dotLabel(sp.interface.level), el("span", { className: "sub", textContent: interfaceSpan(sp.interface) })]
           : [el("span", { className: "muted", textContent: "—" })]),
+        el("td", { className: "num" }, sp.response_ms == null
+          ? [el("span", { className: "muted", textContent: "—" })]
+          : sp.response_slow
+            ? [el("span", { className: "meter tone-warn" }, [el("span", { className: "dot" }), el("span", { className: "word", textContent: `${fmt(sp.response_ms)} ms` })])]
+            : [`${sp.response_ms < 10 ? sp.response_ms.toFixed(1) : fmt(sp.response_ms)} ms`]),
       ]);
       if (member) row.classList.add("member");
       if (next && next.room_id === sp.room_id) row.classList.add("has-members");
@@ -706,6 +796,8 @@
     ])));
 
     renderSignal(report.connections);
+    renderMap(report.network_map || []);
+    renderGroups(report.groups || []);
 
     $("firmware").replaceChildren(...report.firmware.map((g) => el("tr", {}, [
       el("td", {}, [g.display_version || g.version, el("span", { className: "sub", textContent: g.display_version ? g.version : "" })]),

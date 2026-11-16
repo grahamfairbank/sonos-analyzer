@@ -67,7 +67,7 @@ arrow([(305, 230), (330, 230)])
 # Pipeline
 steps = [
     ("1. Find speakers", ["SSDP search on every", "network interface, a typed", "IP, or the last known", "speakers"]),
-    ("2. Read diagnostics", ["up to 12 speakers at once:", "support review, groups,", "model, radio status;", "PHY errors over 5 s"]),
+    ("2. Read diagnostics", ["support review, groups,", "model, radio status;", "PHY errors over 5 s;", "response time"]),
     ("3. Compare", ["with earlier scans: missing", "speakers, restarts, IP,", "firmware, coordinator and", "spanning-tree changes"]),
     ("4. Analyze", ["firmware, rooms, groups,", "Wi-Fi, noise, signal, wired", "errors, SonosNet bridge,", "subnets and double NAT"]),
 ]
@@ -91,7 +91,7 @@ arrow([(845, 300), (845, 390)], None, None, both=True)
 
 # Results
 box(960, 390, 190, 190, "out", "5. Results page",
-    ["findings to act on, plus", "a collapsed informational", "section; plain-language", "readings with bars and", "colors; speaker signal", "map; JSON and HTML", "downloads"])
+    ["findings to act on, plus", "a collapsed informational", "section; network map,", "playing groups, readings", "with bars and colors;", "signal map; JSON and", "HTML downloads"])
 arrow([(1055, 300), (1055, 390)], "report", (1085, 350))
 add('<text x="1055" y="598" text-anchor="middle" font-size="12" fill="#555">in the browser, or from the command line</text>')
 
