@@ -2,7 +2,9 @@
 
 All notable changes to this fork of [soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer). The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] - 2026-11-16
+
+Household overview and network map, plus pre-release firmware and multi-system handling.
 
 ### Added
 
@@ -167,6 +169,7 @@ Pilot pre-release of the desktop app.
 
 Original command-line analyzer by David Klein ([soinkleined/sonos-analyzer](https://github.com/soinkleined/sonos-analyzer)).
 
+[0.6.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0-beta.2...v0.4.0
 [0.4.0-beta.2]: https://github.com/grahamfairbank/sonos-analyzer/compare/v0.4.0-beta.1...v0.4.0-beta.2
